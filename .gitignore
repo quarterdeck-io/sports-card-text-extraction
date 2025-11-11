@@ -49,6 +49,7 @@ Thumbs.db
 **/google-service-account*.json
 **/google-sheets-service-account*.json
 **/*credentials*.json
+APIs/*.json
 
 # Uploads (temporary)
 uploads/
