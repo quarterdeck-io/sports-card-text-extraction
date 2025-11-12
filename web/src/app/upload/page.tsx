@@ -36,10 +36,10 @@ export default function UploadPage() {
     <div className="container mx-auto px-6 py-12">
       {/* Hero Section */}
       <div className="text-center mb-12">
-        <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
+        <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">
           Extract Text from Sports Cards Instantly
         </h1>
-        <p className="text-xl text-gray-600">
+        <p className="text-xl text-gray-300">
           Upload an image and let AI handle the rest
         </p>
       </div>
@@ -53,7 +53,7 @@ export default function UploadPage() {
             onCameraCapture={handleCameraCapture}
           />
           {isUploading && (
-            <div className="mt-4 text-center text-gray-600">
+            <div className="mt-4 text-center text-gray-300">
               Uploading...
             </div>
           )}

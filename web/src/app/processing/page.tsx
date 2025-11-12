@@ -48,10 +48,10 @@ export default function ProcessingPage() {
       <div className="max-w-2xl mx-auto text-center">
         <div className="mb-8">
           <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <h2 className="text-2xl font-semibold text-gray-800 mb-2">
+          <h2 className="text-2xl font-semibold text-white mb-2">
             {status}
           </h2>
-          <p className="text-gray-600">
+          <p className="text-gray-300">
             Please wait while we extract and process your card information...
           </p>
         </div>

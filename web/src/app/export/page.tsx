@@ -78,10 +78,10 @@ export default function ExportPage() {
   return (
     <div className="container mx-auto px-6 py-12">
       <div className="max-w-2xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-900 mb-8">Export Data</h1>
+        <h1 className="text-3xl font-bold text-white mb-8">Export Data</h1>
 
         <div className="bg-white rounded-lg shadow-md p-8">
-          <p className="text-gray-600 mb-6">
+          <p className="text-gray-700 mb-6">
             Choose how you'd like to export your card data:
           </p>
 
