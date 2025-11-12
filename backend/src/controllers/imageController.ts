@@ -1,15 +1,27 @@
 import { Router, Request, Response } from "express";
 import multer from "multer";
 import path from "path";
+import fs from "fs";
 import { config } from "../config";
 import { randomUUID } from "crypto";
 
 const router = Router();
 
+// Ensure upload directory exists
+const uploadDir = config.upload.dir;
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+  console.log(`📁 Created upload directory: ${uploadDir}`);
+}
+
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, config.upload.dir);
+    // Ensure directory exists before saving
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
     const uniqueName = `${randomUUID()}${path.extname(file.originalname)}`;
@@ -41,6 +53,9 @@ router.post("/", upload.single("image"), (req: Request, res: Response) => {
     const imageId = randomUUID();
     const imageUrl = `/uploads/${req.file.filename}`;
 
+    console.log(`✅ Image uploaded: ${req.file.filename} (${req.file.size} bytes)`);
+    console.log(`   Saved to: ${path.join(uploadDir, req.file.filename)}`);
+
     res.json({
       sourceImageId: imageId,
       filename: req.file.filename,
@@ -50,7 +65,11 @@ router.post("/", upload.single("image"), (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error("Image upload error:", error);
-    res.status(500).json({ error: "Failed to upload image" });
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    res.status(500).json({ 
+      error: "Failed to upload image",
+      message: config.nodeEnv === "development" ? errorMessage : "Upload failed"
+    });
   }
 });
 

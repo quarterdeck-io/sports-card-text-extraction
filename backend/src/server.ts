@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import path from "path";
+import fs from "fs";
 import { config } from "./config";
 import { imageRouter } from "./controllers/imageController";
 import { cardRouter } from "./controllers/cardController";
@@ -10,6 +11,13 @@ import { exportRouter } from "./controllers/exportController";
 import { processRouter } from "./controllers/processController";
 
 const app: express.Application = express();
+
+// Ensure uploads directory exists
+const uploadsDir = config.upload.dir;
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  console.log(`📁 Created uploads directory: ${uploadsDir}`);
+}
 
 // Middleware
 app.use(cors());
@@ -64,6 +72,7 @@ const PORT = config.port;
 app.listen(PORT, async () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📝 Environment: ${config.nodeEnv}`);
+  console.log(`📁 Upload directory: ${uploadsDir}`);
   console.log("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   console.log("🔍 Checking API connections...\n");
   
