@@ -10,6 +10,13 @@ function getVisionClient(): ImageAnnotatorClient {
   if (!client) {
     console.log("🔍 Initializing Google Vision API client...");
     console.log(`   Project ID: ${config.google.projectId || "NOT SET"}`);
+    console.log(`   Environment: ${config.nodeEnv}`);
+    console.log(`   GOOGLE_VISION_CREDENTIALS_JSON exists: ${!!process.env.GOOGLE_VISION_CREDENTIALS_JSON}`);
+    if (process.env.GOOGLE_VISION_CREDENTIALS_JSON) {
+      console.log(`   GOOGLE_VISION_CREDENTIALS_JSON length: ${process.env.GOOGLE_VISION_CREDENTIALS_JSON.length} chars`);
+      console.log(`   GOOGLE_VISION_CREDENTIALS_JSON first 50 chars: ${process.env.GOOGLE_VISION_CREDENTIALS_JSON.substring(0, 50)}...`);
+    }
+    console.log(`   Parsed credentials object exists: ${!!config.google.visionCredentialsJson}`);
     
     try {
       // Priority 1: Use JSON credentials from environment variable
