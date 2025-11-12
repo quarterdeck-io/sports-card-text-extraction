@@ -79,7 +79,6 @@ router.post("/sheets", async (req: Request, res: Response) => {
     
     // Priority 1: Use JSON credentials from environment variable
     if (config.google.sheets.serviceAccountKeyJson) {
-      // @ts-expect-error - google namespace may not be recognized during build
       googleAuth = new google.auth.GoogleAuth({
         credentials: config.google.sheets.serviceAccountKeyJson,
         scopes: ["https://www.googleapis.com/auth/spreadsheets"],
@@ -98,7 +97,6 @@ router.post("/sheets", async (req: Request, res: Response) => {
         });
       }
 
-      // @ts-expect-error - google namespace may not be recognized during build
       googleAuth = new google.auth.GoogleAuth({
         keyFile: credentialsPath,
         scopes: ["https://www.googleapis.com/auth/spreadsheets"],
