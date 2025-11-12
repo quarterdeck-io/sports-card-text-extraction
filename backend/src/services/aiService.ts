@@ -138,13 +138,48 @@ export async function checkGeminiConnection(): Promise<boolean> {
   }
 }
 
+// Helper function to retry with exponential backoff
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelay: number = 1000
+): Promise<T> {
+  let lastError: Error | unknown;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      
+      // Only retry on 503 (service unavailable) or 429 (rate limit)
+      if (errorMsg.includes("503") || errorMsg.includes("Service Unavailable") || 
+          errorMsg.includes("429") || errorMsg.includes("overloaded")) {
+        if (attempt < maxRetries - 1) {
+          const delay = baseDelay * Math.pow(2, attempt); // Exponential backoff
+          console.log(`   ⚠️  Attempt ${attempt + 1} failed, retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+      }
+      // For other errors, don't retry
+      throw error;
+    }
+  }
+  
+  throw lastError;
+}
+
 // Helper function to find a working model
 async function findWorkingModel(client: GoogleGenerativeAI, apiKey: string): Promise<string> {
   // Try to get available models
   const availableModels = await listAvailableModels(apiKey);
   
-  // Prefer stable models over preview ones
+  // Prefer stable models over preview ones (avoid preview models that might be overloaded)
   const preferredModels = [
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
     "gemini-2.5-flash",
     "gemini-2.5-pro",
     "gemini-flash-latest",
@@ -235,35 +270,63 @@ Return ONLY a valid JSON object with this exact structure:
 
 For confidence scores, use values between 0.0 and 1.0. Use lower values (0.5-0.7) if the field is unclear or missing, and higher values (0.8-1.0) if the field is clearly identified.`;
 
-    let model = client.getGenerativeModel({ 
-      model: modelToUse,
-      generationConfig: {
-        temperature: 0.3,
-        responseMimeType: "application/json",
-      },
-    });
-
+    // Try with retry logic and fallback models
     let result;
-    try {
-      result = await model.generateContent(prompt);
-    } catch (modelError) {
-      // If model fails, try to find a working one
-      const errorMsg = modelError instanceof Error ? modelError.message : String(modelError);
-      if (errorMsg.includes("not found") || errorMsg.includes("404")) {
-        console.log(`   ⚠️  Model ${modelToUse} failed, finding alternative...`);
-        const newModel = await findWorkingModel(client, apiKey);
-        workingGeminiModel = newModel;
-        model = client.getGenerativeModel({ 
-          model: newModel,
+    let lastError: Error | unknown;
+    const modelsToTry = [
+      modelToUse,
+      "gemini-1.5-flash",
+      "gemini-1.5-pro",
+      "gemini-pro",
+    ].filter((model, index, self) => self.indexOf(model) === index); // Remove duplicates
+    
+    for (const currentModel of modelsToTry) {
+      try {
+        console.log(`   Trying model: ${currentModel}...`);
+        const model = client.getGenerativeModel({ 
+          model: currentModel,
           generationConfig: {
             temperature: 0.3,
             responseMimeType: "application/json",
           },
         });
-        result = await model.generateContent(prompt);
-      } else {
+        
+        // Retry with exponential backoff for 503/429 errors
+        result = await retryWithBackoff(async () => {
+          return await model.generateContent(prompt);
+        }, 3, 1000);
+        
+        // Success - update working model
+        if (currentModel !== modelToUse) {
+          console.log(`   ✅ Switched to model: ${currentModel}`);
+          workingGeminiModel = currentModel;
+        }
+        break; // Success, exit loop
+      } catch (modelError) {
+        lastError = modelError;
+        const errorMsg = modelError instanceof Error ? modelError.message : String(modelError);
+        
+        // If it's a 404 (model not found), try next model
+        if (errorMsg.includes("not found") || errorMsg.includes("404")) {
+          console.log(`   ⚠️  Model ${currentModel} not found, trying next...`);
+          continue;
+        }
+        
+        // If it's 503/429 (overloaded/rate limit), try next model
+        if (errorMsg.includes("503") || errorMsg.includes("Service Unavailable") || 
+            errorMsg.includes("429") || errorMsg.includes("overloaded")) {
+          console.log(`   ⚠️  Model ${currentModel} is overloaded, trying alternative...`);
+          continue;
+        }
+        
+        // For other errors, throw immediately
         throw modelError;
       }
+    }
+    
+    // If all models failed
+    if (!result) {
+      throw lastError || new Error("All model attempts failed");
     }
     const response = result.response;
     const content = response.text();
@@ -333,35 +396,63 @@ Return ONLY a valid JSON object:
   "autoDescription": ""
 }`;
 
-    let model = client.getGenerativeModel({ 
-      model: modelToUse,
-      generationConfig: {
-        temperature: 0.3,
-        responseMimeType: "application/json",
-      },
-    });
-
+    // Try with retry logic and fallback models
     let result;
-    try {
-      result = await model.generateContent(prompt);
-    } catch (modelError) {
-      // If model fails, try to find a working one
-      const errorMsg = modelError instanceof Error ? modelError.message : String(modelError);
-      if (errorMsg.includes("not found") || errorMsg.includes("404")) {
-        console.log(`   ⚠️  Model ${modelToUse} failed, finding alternative...`);
-        const newModel = await findWorkingModel(client, apiKey);
-        workingGeminiModel = newModel;
-        model = client.getGenerativeModel({ 
-          model: newModel,
+    let lastError: Error | unknown;
+    const modelsToTry = [
+      modelToUse,
+      "gemini-1.5-flash",
+      "gemini-1.5-pro",
+      "gemini-pro",
+    ].filter((model, index, self) => self.indexOf(model) === index); // Remove duplicates
+    
+    for (const currentModel of modelsToTry) {
+      try {
+        console.log(`   Trying model: ${currentModel}...`);
+        const model = client.getGenerativeModel({ 
+          model: currentModel,
           generationConfig: {
             temperature: 0.3,
             responseMimeType: "application/json",
           },
         });
-        result = await model.generateContent(prompt);
-      } else {
+        
+        // Retry with exponential backoff for 503/429 errors
+        result = await retryWithBackoff(async () => {
+          return await model.generateContent(prompt);
+        }, 3, 1000);
+        
+        // Success - update working model
+        if (currentModel !== modelToUse) {
+          console.log(`   ✅ Switched to model: ${currentModel}`);
+          workingGeminiModel = currentModel;
+        }
+        break; // Success, exit loop
+      } catch (modelError) {
+        lastError = modelError;
+        const errorMsg = modelError instanceof Error ? modelError.message : String(modelError);
+        
+        // If it's a 404 (model not found), try next model
+        if (errorMsg.includes("not found") || errorMsg.includes("404")) {
+          console.log(`   ⚠️  Model ${currentModel} not found, trying next...`);
+          continue;
+        }
+        
+        // If it's 503/429 (overloaded/rate limit), try next model
+        if (errorMsg.includes("503") || errorMsg.includes("Service Unavailable") || 
+            errorMsg.includes("429") || errorMsg.includes("overloaded")) {
+          console.log(`   ⚠️  Model ${currentModel} is overloaded, trying alternative...`);
+          continue;
+        }
+        
+        // For other errors, throw immediately
         throw modelError;
       }
+    }
+    
+    // If all models failed
+    if (!result) {
+      throw lastError || new Error("All model attempts failed");
     }
     const response = result.response;
     const content = response.text();
