@@ -1,7 +1,6 @@
 "use client";
 
 import { Check, X, Folder } from "lucide-react";
-import Image from "next/image";
 import { useState } from "react";
 
 export default function TipsPanel() {
@@ -24,11 +23,10 @@ export default function TipsPanel() {
           </div>
           <div className="w-full h-48 bg-gray-100 rounded-lg overflow-hidden border-2 border-green-300 relative">
             {!goodImageError ? (
-              <Image
+              <img
                 src="/good.png"
                 alt="Good example: Clear card photo"
-                fill
-                className="object-cover"
+                className="w-full h-full object-cover"
                 onError={() => setGoodImageError(true)}
               />
             ) : (
@@ -47,11 +45,10 @@ export default function TipsPanel() {
           </div>
           <div className="w-full h-48 bg-gray-100 rounded-lg overflow-hidden border-2 border-red-300 relative">
             {!badImageError ? (
-              <Image
+              <img
                 src="/bad.jpg"
                 alt="Bad example: Poor card photo"
-                fill
-                className="object-cover"
+                className="w-full h-full object-cover"
                 onError={() => setBadImageError(true)}
               />
             ) : (
