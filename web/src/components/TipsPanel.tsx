@@ -1,8 +1,13 @@
 "use client";
 
 import { Check, X, Folder } from "lucide-react";
+import Image from "next/image";
+import { useState } from "react";
 
 export default function TipsPanel() {
+  const [goodImageError, setGoodImageError] = useState(false);
+  const [badImageError, setBadImageError] = useState(false);
+
   return (
     <div className="bg-white rounded-lg shadow-md p-6">
       <div className="flex items-center gap-2 mb-6">
@@ -17,8 +22,20 @@ export default function TipsPanel() {
             <Check className="w-5 h-5 text-green-600" />
             <span className="text-gray-700 font-medium">Good: Clear, no glare</span>
           </div>
-          <div className="w-full h-48 bg-gray-100 rounded-lg flex items-center justify-center border-2 border-dashed border-gray-300">
-            <span className="text-gray-400 text-sm">Good photo</span>
+          <div className="w-full h-48 bg-gray-100 rounded-lg overflow-hidden border-2 border-green-300 relative">
+            {!goodImageError ? (
+              <Image
+                src="/good.jpg"
+                alt="Good example: Clear card photo"
+                fill
+                className="object-cover"
+                onError={() => setGoodImageError(true)}
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                <span className="text-gray-400 text-sm">Place good.jpg in /public/</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -28,8 +45,20 @@ export default function TipsPanel() {
             <X className="w-5 h-5 text-red-600" />
             <span className="text-gray-700 font-medium">Bad: Glare, blurry</span>
           </div>
-          <div className="w-full h-48 bg-gray-100 rounded-lg flex items-center justify-center border-2 border-dashed border-gray-300">
-            <span className="text-gray-400 text-sm">Bad photo</span>
+          <div className="w-full h-48 bg-gray-100 rounded-lg overflow-hidden border-2 border-red-300 relative">
+            {!badImageError ? (
+              <Image
+                src="/bad.jpg"
+                alt="Bad example: Poor card photo"
+                fill
+                className="object-cover"
+                onError={() => setBadImageError(true)}
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                <span className="text-gray-400 text-sm">Place bad.jpg in /public/</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
