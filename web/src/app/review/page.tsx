@@ -2,7 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle, AlertCircle } from "lucide-react";
+import { CheckCircle, AlertCircle, Download, FileSpreadsheet } from "lucide-react";
+import { getExportPreference, type ExportType } from "@/lib/exportPreferences";
+import api from "@/lib/api";
+import ExportSuccessModal from "@/components/ExportSuccessModal";
 
 export default function ReviewPage() {
   const router = useRouter();
@@ -18,6 +21,9 @@ export default function ReviewPage() {
     cert: "",
     caption: "",
   });
+  const [savedPreference, setSavedPreference] = useState<ExportType | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
     const cardDataStr = sessionStorage.getItem("cardData");
@@ -34,10 +40,66 @@ export default function ReviewPage() {
       // No card data, redirect to upload
       router.push("/upload");
     }
+    
+    // Load saved export preference
+    setSavedPreference(getExportPreference());
   }, [router]);
 
   const handleFieldChange = (field: string, value: string) => {
     setFields((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleQuickExport = async () => {
+    if (!savedPreference) {
+      // No preference saved, go to export page
+      router.push("/export");
+      return;
+    }
+
+    const cardId = sessionStorage.getItem("currentCardId");
+    if (!cardId) {
+      alert("No card data found. Please upload an image first.");
+      router.push("/upload");
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      if (savedPreference === "csv") {
+        const response = await api.post(
+          "/api/export/csv",
+          { cardId },
+          {
+            responseType: "blob",
+          }
+        );
+
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", `card-${cardId}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+        setIsModalOpen(true);
+      } else {
+        const response = await api.post("/api/export/sheets", { cardId });
+        
+        if (response.data.sheetUrl) {
+          setIsModalOpen(true);
+          sessionStorage.setItem("sheetUrl", response.data.sheetUrl);
+        } else {
+          alert("Data exported to Google Sheets successfully!");
+        }
+      }
+    } catch (error: any) {
+      console.error("Export error:", error);
+      const errorMessage = error.response?.data?.error || "Failed to export. Please try again.";
+      alert(errorMessage);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const handleExport = () => {
@@ -70,17 +132,38 @@ export default function ReviewPage() {
         <div className="flex justify-end gap-4">
           <button
             onClick={() => router.push("/upload")}
-            className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+            className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700"
           >
             Cancel
           </button>
+          {savedPreference && (
+            <button
+              onClick={handleQuickExport}
+              disabled={isExporting}
+              className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {savedPreference === "csv" ? (
+                <Download className="w-4 h-4" />
+              ) : (
+                <FileSpreadsheet className="w-4 h-4" />
+              )}
+              {isExporting ? "Exporting..." : `Quick Export (${savedPreference === "csv" ? "CSV" : "Sheets"})`}
+            </button>
+          )}
           <button
             onClick={handleExport}
             className="px-6 py-2 bg-[#1e3a5f] text-white rounded-lg hover:bg-[#2a4f7a]"
           >
-            Continue to Export
+            {savedPreference ? "Choose Export Method" : "Continue to Export"}
           </button>
         </div>
+
+        <ExportSuccessModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          onDownloadCSV={savedPreference === "csv" ? handleQuickExport : undefined}
+          onOpenGoogleSheet={savedPreference === "sheets" ? handleQuickExport : undefined}
+        />
       </div>
     </div>
   );

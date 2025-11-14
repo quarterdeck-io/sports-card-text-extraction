@@ -1,14 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import ExportSuccessModal from "@/components/ExportSuccessModal";
 import api from "@/lib/api";
+import { saveExportPreference, getExportPreference, type ExportType } from "@/lib/exportPreferences";
+import { Check } from "lucide-react";
 
 export default function ExportPage() {
   const router = useRouter();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [savedPreference, setSavedPreference] = useState<ExportType | null>(null);
+
+  useEffect(() => {
+    // Load saved preference on mount
+    setSavedPreference(getExportPreference());
+  }, []);
 
   const handleExportCSV = async () => {
     const cardId = sessionStorage.getItem("currentCardId");
@@ -38,6 +46,9 @@ export default function ExportPage() {
       link.remove();
       window.URL.revokeObjectURL(url);
 
+      // Save preference
+      saveExportPreference("csv");
+      setSavedPreference("csv");
       setIsModalOpen(true);
     } catch (error) {
       console.error("CSV export error:", error);
@@ -58,6 +69,10 @@ export default function ExportPage() {
     setIsExporting(true);
     try {
       const response = await api.post("/api/export/sheets", { cardId });
+      
+      // Save preference
+      saveExportPreference("sheets");
+      setSavedPreference("sheets");
       
       if (response.data.sheetUrl) {
         setIsModalOpen(true);
@@ -85,20 +100,46 @@ export default function ExportPage() {
             Choose how you'd like to export your card data:
           </p>
 
+          {savedPreference && (
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-700">
+                💡 Last used: <span className="font-semibold">{savedPreference === "csv" ? "CSV" : "Google Sheets"}</span>
+              </p>
+            </div>
+          )}
+
           <div className="flex flex-col gap-4">
             <button
               onClick={handleExportCSV}
               disabled={isExporting}
-              className="w-full px-6 py-4 bg-[#1e3a5f] text-white rounded-lg hover:bg-[#2a4f7a] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              className={`w-full px-6 py-4 rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed relative ${
+                savedPreference === "csv"
+                  ? "bg-[#1e3a5f] text-white hover:bg-[#2a4f7a] border-2 border-blue-400"
+                  : "bg-[#1e3a5f] text-white hover:bg-[#2a4f7a]"
+              }`}
             >
-              {isExporting ? "Exporting..." : "Export to CSV"}
+              {savedPreference === "csv" && (
+                <Check className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5" />
+              )}
+              <span className={savedPreference === "csv" ? "ml-6" : ""}>
+                {isExporting && savedPreference === "csv" ? "Exporting..." : "Export to CSV"}
+              </span>
             </button>
             <button
               onClick={handleExportSheets}
               disabled={isExporting}
-              className="w-full px-6 py-4 bg-[#1e3a5f] text-white rounded-lg hover:bg-[#2a4f7a] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              className={`w-full px-6 py-4 rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed relative ${
+                savedPreference === "sheets"
+                  ? "bg-[#1e3a5f] text-white hover:bg-[#2a4f7a] border-2 border-blue-400"
+                  : "bg-[#1e3a5f] text-white hover:bg-[#2a4f7a]"
+              }`}
             >
-              {isExporting ? "Exporting..." : "Export to Google Sheets"}
+              {savedPreference === "sheets" && (
+                <Check className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5" />
+              )}
+              <span className={savedPreference === "sheets" ? "ml-6" : ""}>
+                {isExporting && savedPreference === "sheets" ? "Exporting..." : "Export to Google Sheets"}
+              </span>
             </button>
           </div>
         </div>
