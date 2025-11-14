@@ -47,7 +47,26 @@ const upload = multer({
 router.post("/", upload.single("image"), (req: Request, res: Response) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: "No file uploaded" });
+      // Check if it's a multer error
+      if (req.body && (req.body as any).error) {
+        const multerError = (req.body as any).error;
+        if (multerError.includes("File too large")) {
+          return res.status(413).json({ 
+            error: "File too large",
+            message: "The uploaded file exceeds the maximum size of 10MB. Please upload a smaller image."
+          });
+        }
+        if (multerError.includes("Invalid file type")) {
+          return res.status(400).json({ 
+            error: "Invalid file type",
+            message: "Only image files (JPG, PNG, GIF, WebP) are allowed. Please upload a valid image file."
+          });
+        }
+      }
+      return res.status(400).json({ 
+        error: "No file uploaded",
+        message: "Please select an image file to upload."
+      });
     }
 
     const imageId = randomUUID();
@@ -66,11 +85,58 @@ router.post("/", upload.single("image"), (req: Request, res: Response) => {
   } catch (error) {
     console.error("Image upload error:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    
+    // Handle specific multer errors
+    if (errorMessage.includes("File too large") || errorMessage.includes("LIMIT_FILE_SIZE")) {
+      return res.status(413).json({ 
+        error: "File too large",
+        message: "The uploaded file exceeds the maximum size of 10MB. Please upload a smaller image."
+      });
+    }
+    
+    if (errorMessage.includes("Invalid file type") || errorMessage.includes("LIMIT_FILE_TYPE")) {
+      return res.status(400).json({ 
+        error: "Invalid file type",
+        message: "Only image files (JPG, PNG, GIF, WebP) are allowed. Please upload a valid image file."
+      });
+    }
+    
     res.status(500).json({ 
       error: "Failed to upload image",
-      message: config.nodeEnv === "development" ? errorMessage : "Upload failed"
+      message: config.nodeEnv === "development" ? errorMessage : "An error occurred while uploading the image. Please try again."
     });
   }
+});
+
+// Error handler for multer errors
+router.use((error: any, req: Request, res: Response, next: any) => {
+  if (error instanceof multer.MulterError) {
+    if (error.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({ 
+        error: "File too large",
+        message: "The uploaded file exceeds the maximum size of 10MB. Please upload a smaller image."
+      });
+    }
+    return res.status(400).json({ 
+      error: "Upload error",
+      message: error.message || "An error occurred while uploading the file. Please try again."
+    });
+  }
+  
+  if (error) {
+    if (error.message?.includes("Invalid file type")) {
+      return res.status(400).json({ 
+        error: "Invalid file type",
+        message: "Only image files (JPG, PNG, GIF, WebP) are allowed. Please upload a valid image file."
+      });
+    }
+    return res.status(400).json({ 
+      error: "Upload error",
+      message: error.message || "An error occurred while uploading the file. Please try again."
+    });
+  }
+  
+  next(error);
 });
 
 export { router as imageRouter };

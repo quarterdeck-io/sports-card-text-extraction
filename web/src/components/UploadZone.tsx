@@ -26,20 +26,64 @@ export default function UploadZone({ onFileSelect, onCameraCapture }: UploadZone
     setIsDragging(false);
   };
 
+  const validateImage = (file: File): { valid: boolean; error?: string } => {
+    // Check file type
+    const validTypes = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"];
+    if (!validTypes.includes(file.type)) {
+      return {
+        valid: false,
+        error: "Invalid file type. Please upload a JPG, PNG, GIF, or WebP image.",
+      };
+    }
+
+    // Check file size (10MB max)
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (file.size > maxSize) {
+      return {
+        valid: false,
+        error: "File is too large. Please upload an image smaller than 10MB.",
+      };
+    }
+
+    // Check if file is empty
+    if (file.size === 0) {
+      return {
+        valid: false,
+        error: "The selected file is empty. Please choose a valid image file.",
+      };
+    }
+
+    return { valid: true };
+  };
+
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(false);
 
     const file = e.dataTransfer.files[0];
-    if (file && file.type.startsWith("image/")) {
-      onFileSelect(file);
+    if (file) {
+      const validation = validateImage(file);
+      if (validation.valid) {
+        onFileSelect(file);
+      } else {
+        alert(validation.error);
+      }
     }
   };
 
   const handleFileInput = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      onFileSelect(file);
+      const validation = validateImage(file);
+      if (validation.valid) {
+        onFileSelect(file);
+      } else {
+        alert(validation.error);
+        // Reset input
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+      }
     }
   };
 

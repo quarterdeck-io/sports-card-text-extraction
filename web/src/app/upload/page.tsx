@@ -19,9 +19,34 @@ export default function UploadPage() {
       sessionStorage.setItem("imageFilename", uploadResponse.filename);
       sessionStorage.setItem("imageUrl", uploadResponse.url);
       router.push("/processing");
-    } catch (error) {
+    } catch (error: any) {
       console.error("Upload error:", error);
-      alert("Failed to upload image. Please try again.");
+      
+      // Provide user-friendly error messages
+      let errorMessage = "Failed to upload image. Please try again.";
+      
+      if (error.response) {
+        const status = error.response.status;
+        const data = error.response.data;
+        
+        if (status === 400) {
+          errorMessage = data.message || data.error || "Invalid file. Please check that your image is a valid JPG, PNG, GIF, or WebP file.";
+        } else if (status === 413) {
+          errorMessage = "File is too large. Please upload an image smaller than 10MB.";
+        } else if (status === 500) {
+          errorMessage = data.message || "Server error. Please try again in a moment.";
+        } else {
+          errorMessage = data.message || data.error || errorMessage;
+        }
+      } else if (error.message) {
+        if (error.message.includes("Network Error") || error.message.includes("ERR_CONNECTION_REFUSED")) {
+          errorMessage = "Cannot connect to server. Please make sure the backend is running.";
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
+      alert(errorMessage);
     } finally {
       setIsUploading(false);
     }
