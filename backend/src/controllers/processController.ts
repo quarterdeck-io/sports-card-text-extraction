@@ -91,13 +91,67 @@ router.post("/", async (req: Request, res: Response) => {
 
     // Step 2: Normalize
     console.log("\n--- Step 2: AI Normalization ---");
-    const normalizeResult = await normalizeCardText(ocrResult.rawOcrText);
-    console.log("   Normalization completed");
+    let normalizeResult;
+    try {
+      normalizeResult = await normalizeCardText(ocrResult.rawOcrText);
+      console.log("   Normalization completed");
+    } catch (normalizeError: any) {
+      console.error("❌ AI Normalization failed:", normalizeError);
+      const normalizeErrorMessage = normalizeError instanceof Error ? normalizeError.message : "Unknown error";
+      
+      // Provide user-friendly error messages
+      if (normalizeErrorMessage.includes("AI service unavailable") || normalizeErrorMessage.includes("No compatible models")) {
+        return res.status(503).json({
+          error: "AI service unavailable",
+          message: "The AI service is currently unavailable. This may be due to:\n• API configuration issues\n• No compatible AI models available\n• Please try again later or contact support",
+          step: "normalization",
+        });
+      } else if (normalizeErrorMessage.includes("access denied") || normalizeErrorMessage.includes("billing")) {
+        return res.status(403).json({
+          error: "AI service access denied",
+          message: "Unable to access AI services. Please ensure:\n• Billing is enabled for your Google Cloud account\n• API permissions are correctly configured\n• Contact your administrator if this persists",
+          step: "normalization",
+        });
+      } else if (normalizeErrorMessage.includes("authentication failed") || normalizeErrorMessage.includes("API key")) {
+        return res.status(401).json({
+          error: "AI service authentication failed",
+          message: "Invalid API credentials. Please check:\n• Your API key is correctly configured\n• The API key has the necessary permissions\n• Contact support if you need help setting up API access",
+          step: "normalization",
+        });
+      } else if (normalizeErrorMessage.includes("temporarily unavailable")) {
+        return res.status(503).json({
+          error: "AI service temporarily unavailable",
+          message: "The AI service is temporarily overloaded. Please:\n• Wait a few moments and try again\n• The service should be available shortly",
+          step: "normalization",
+        });
+      } else {
+        return res.status(500).json({
+          error: "AI normalization failed",
+          message: normalizeErrorMessage || "Unable to process the extracted text. Please try again or contact support if the issue persists.",
+          step: "normalization",
+          details: config.nodeEnv === "development" ? normalizeErrorMessage : undefined,
+        });
+      }
+    }
 
     // Step 3: Generate title and description
     console.log("\n--- Step 3: Generate Title/Description ---");
-    const titleDescResult = await generateTitleAndDescription(normalizeResult.normalized);
-    console.log("   Title/Description generated");
+    let titleDescResult;
+    try {
+      titleDescResult = await generateTitleAndDescription(normalizeResult.normalized);
+      console.log("   Title/Description generated");
+    } catch (titleError: any) {
+      console.error("❌ Title/Description generation failed:", titleError);
+      const titleErrorMessage = titleError instanceof Error ? titleError.message : "Unknown error";
+      
+      // If title generation fails, we can still proceed with empty title/description
+      // But log the error for debugging
+      console.warn("⚠️  Continuing without auto-generated title/description");
+      titleDescResult = {
+        autoTitle: "",
+        autoDescription: "",
+      };
+    }
 
     // Step 4: Create card record
     console.log("\n--- Step 4: Creating Card Record ---");

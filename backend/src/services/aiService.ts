@@ -273,11 +273,34 @@ For confidence scores, use values between 0.0 and 1.0. Use lower values (0.5-0.7
     // Try with retry logic and fallback models
     let result;
     let lastError: Error | unknown;
-    const modelsToTry = [
-      modelToUse,
+    
+    // First, try to find a working model dynamically if the default fails
+    let modelsToTry = [modelToUse];
+    
+    // If default model fails, try to find a working one
+    try {
+      const foundModel = await findWorkingModel(client, apiKey);
+      if (foundModel && !modelsToTry.includes(foundModel)) {
+        modelsToTry.push(foundModel);
+      }
+    } catch (e) {
+      // If findWorkingModel fails, use hardcoded fallbacks
+      console.log("   ⚠️  Could not find working model dynamically, using fallbacks...");
+    }
+    
+    // Add fallback models (excluding gemini-pro which doesn't exist)
+    const fallbackModels = [
       "gemini-1.5-flash",
       "gemini-1.5-pro",
-      "gemini-pro",
+      "gemini-2.5-flash",
+      "gemini-2.5-pro",
+      "gemini-flash-latest",
+      "gemini-pro-latest",
+    ];
+    
+    modelsToTry = [
+      ...modelsToTry,
+      ...fallbackModels,
     ].filter((model, index, self) => self.indexOf(model) === index); // Remove duplicates
     
     for (const currentModel of modelsToTry) {
@@ -326,7 +349,20 @@ For confidence scores, use values between 0.0 and 1.0. Use lower values (0.5-0.7
     
     // If all models failed
     if (!result) {
-      throw lastError || new Error("All model attempts failed");
+      const errorMsg = lastError instanceof Error ? lastError.message : String(lastError || "Unknown error");
+      
+      // Provide user-friendly error message
+      if (errorMsg.includes("not found") || errorMsg.includes("404")) {
+        throw new Error("AI service unavailable: No compatible models found. Please check your API configuration.");
+      } else if (errorMsg.includes("403") || errorMsg.includes("PERMISSION_DENIED")) {
+        throw new Error("AI service access denied: Please enable billing or check API permissions.");
+      } else if (errorMsg.includes("401") || errorMsg.includes("API_KEY")) {
+        throw new Error("AI service authentication failed: Please check your API key configuration.");
+      } else if (errorMsg.includes("503") || errorMsg.includes("Service Unavailable")) {
+        throw new Error("AI service temporarily unavailable: Please try again in a moment.");
+      } else {
+        throw new Error(`AI processing failed: ${errorMsg}`);
+      }
     }
     const response = result.response;
     const content = response.text();
@@ -399,11 +435,34 @@ Return ONLY a valid JSON object:
     // Try with retry logic and fallback models
     let result;
     let lastError: Error | unknown;
-    const modelsToTry = [
-      modelToUse,
+    
+    // First, try to find a working model dynamically if the default fails
+    let modelsToTry = [modelToUse];
+    
+    // If default model fails, try to find a working one
+    try {
+      const foundModel = await findWorkingModel(client, apiKey);
+      if (foundModel && !modelsToTry.includes(foundModel)) {
+        modelsToTry.push(foundModel);
+      }
+    } catch (e) {
+      // If findWorkingModel fails, use hardcoded fallbacks
+      console.log("   ⚠️  Could not find working model dynamically, using fallbacks...");
+    }
+    
+    // Add fallback models (excluding gemini-pro which doesn't exist)
+    const fallbackModels = [
       "gemini-1.5-flash",
       "gemini-1.5-pro",
-      "gemini-pro",
+      "gemini-2.5-flash",
+      "gemini-2.5-pro",
+      "gemini-flash-latest",
+      "gemini-pro-latest",
+    ];
+    
+    modelsToTry = [
+      ...modelsToTry,
+      ...fallbackModels,
     ].filter((model, index, self) => self.indexOf(model) === index); // Remove duplicates
     
     for (const currentModel of modelsToTry) {
@@ -452,7 +511,20 @@ Return ONLY a valid JSON object:
     
     // If all models failed
     if (!result) {
-      throw lastError || new Error("All model attempts failed");
+      const errorMsg = lastError instanceof Error ? lastError.message : String(lastError || "Unknown error");
+      
+      // Provide user-friendly error message
+      if (errorMsg.includes("not found") || errorMsg.includes("404")) {
+        throw new Error("AI service unavailable: No compatible models found. Please check your API configuration.");
+      } else if (errorMsg.includes("403") || errorMsg.includes("PERMISSION_DENIED")) {
+        throw new Error("AI service access denied: Please enable billing or check API permissions.");
+      } else if (errorMsg.includes("401") || errorMsg.includes("API_KEY")) {
+        throw new Error("AI service authentication failed: Please check your API key configuration.");
+      } else if (errorMsg.includes("503") || errorMsg.includes("Service Unavailable")) {
+        throw new Error("AI service temporarily unavailable: Please try again in a moment.");
+      } else {
+        throw new Error(`AI processing failed: ${errorMsg}`);
+      }
     }
     const response = result.response;
     const content = response.text();
