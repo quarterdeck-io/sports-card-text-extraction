@@ -12,12 +12,25 @@ export default function UploadPage() {
 
   const handleFileSelect = async (file: File) => {
     setIsUploading(true);
+    // Capture client-side upload start time
+    const clientUploadStartTime = performance.now();
+    
     try {
       const uploadResponse = await uploadImage(file);
+      
+      // Calculate total upload time (client-side measurement includes network transfer)
+      const clientUploadEndTime = performance.now();
+      const totalUploadTime = Math.round((clientUploadEndTime - clientUploadStartTime) / 100) / 10;
+      
       // Store image info for processing
       sessionStorage.setItem("currentImageId", uploadResponse.sourceImageId);
       sessionStorage.setItem("imageFilename", uploadResponse.filename);
       sessionStorage.setItem("imageUrl", uploadResponse.url);
+      
+      // Store upload timing (use client-side measurement for more accurate total time)
+      console.log("📊 Upload timing (client-side):", totalUploadTime, "s");
+      sessionStorage.setItem("uploadTiming", totalUploadTime.toString());
+      
       router.push("/processing");
     } catch (error: any) {
       console.error("Upload error:", error);

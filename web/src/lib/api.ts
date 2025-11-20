@@ -15,6 +15,9 @@ export interface UploadImageResponse {
   url: string;
   size: number;
   mimetype: string;
+  timings?: {
+    upload: number;
+  };
 }
 
 export const uploadImage = async (file: File): Promise<UploadImageResponse> => {
@@ -49,6 +52,12 @@ export interface ProcessImageResponse {
     autoTitle: string;
     autoDescription: string;
     confidenceByField: Record<string, number>;
+  };
+  timings?: {
+    ocr: number;
+    normalization: number;
+    titleGeneration: number;
+    total: number;
   };
 }
 

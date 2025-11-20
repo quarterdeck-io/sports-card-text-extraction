@@ -2,7 +2,8 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NormalizedCardFields, NormalizeResponse, TitleDescriptionResponse } from "../types";
 
 let geminiClient: GoogleGenerativeAI | null = null;
-let workingGeminiModel: string = "gemini-2.5-flash"; // Default model name (updated to newer model)
+let workingGeminiModel: string = "gemini-1.5-flash"; // Use fastest flash model by default
+let modelDiscoveryDone: boolean = false; // Cache flag to skip discovery on every request
 
 function getGeminiClient(): GoogleGenerativeAI {
   if (!geminiClient) {
@@ -138,11 +139,11 @@ export async function checkGeminiConnection(): Promise<boolean> {
   }
 }
 
-// Helper function to retry with exponential backoff
+// Helper function to retry with exponential backoff (optimized delays)
 async function retryWithBackoff<T>(
   fn: () => Promise<T>,
   maxRetries: number = 3,
-  baseDelay: number = 1000
+  baseDelay: number = 500 // Reduced from 1000ms to 500ms for faster recovery
 ): Promise<T> {
   let lastError: Error | unknown;
   
@@ -176,16 +177,14 @@ async function findWorkingModel(client: GoogleGenerativeAI, apiKey: string): Pro
   // Try to get available models
   const availableModels = await listAvailableModels(apiKey);
   
-  // Prefer stable models over preview ones (avoid preview models that might be overloaded)
+  // Prefer fastest flash models first (optimized for speed)
   const preferredModels = [
-    "gemini-1.5-flash",
-    "gemini-1.5-pro",
-    "gemini-2.5-flash",
-    "gemini-2.5-pro",
-    "gemini-flash-latest",
-    "gemini-pro-latest",
-    ...availableModels.filter(m => !m.includes("preview") && !m.includes("exp")),
-    ...availableModels,
+    "gemini-1.5-flash", // Fastest, most stable
+    "gemini-flash-latest", // Latest flash version
+    "gemini-2.5-flash", // Newer but may be slower
+    ...availableModels.filter(m => m.includes("flash") && !m.includes("preview") && !m.includes("exp") && !m.includes("thinking") && !m.includes("reasoning")),
+    "gemini-1.5-pro", // Fallback to pro if flash unavailable
+    ...availableModels.filter(m => !m.includes("preview") && !m.includes("exp") && !m.includes("thinking") && !m.includes("reasoning")),
   ].filter((model, index, self) => self.indexOf(model) === index);
   
   for (const modelName of preferredModels) {
@@ -214,33 +213,27 @@ export async function normalizeCardText(rawOcrText: string): Promise<NormalizeRe
     let modelToUse = workingGeminiModel;
     console.log(`   Using model: ${modelToUse}`);
 
-    const prompt = `You are an expert at extracting and normalizing information from sports card images. Extract the following information from the OCR text below:
+    // Optimized prompt - balanced between speed and clarity
+    const prompt = `Extract and normalize sports card information from the OCR text below.
 
+OCR Text:
 ${rawOcrText}
 
-Extract and normalize the following fields:
-- year: The year the card was produced (e.g., "1972", "1955")
-- set: The brand/set name (e.g., "Topps", "Bowman")
-- cardNumber: The card number (e.g., "#595", "#123")
-- title: The card title or highlight text
-- playerFirstName: First name of the player
-- playerLastName: Last name of the player
-- gradingCompany: The grading company (e.g., "PSA", "SGC", "BGS")
-- grade: The grade (e.g., "NM-MT 8", "VG-EX 4", "Mint 9")
+Extract these fields:
+- year: Card production year (e.g., "1972", "1955")
+- set: Brand/set name (e.g., "Topps", "Bowman")
+- cardNumber: Card number (e.g., "#595", "#123")
+- title: Card title or highlight text
+- playerFirstName: Player's first name
+- playerLastName: Player's last name
+- gradingCompany: Grading company (e.g., "PSA", "SGC", "BGS")
+- grade: Grade (e.g., "NM-MT 8", "VG-EX 4", "Mint 9")
 - cert: Certification number if available
-- caption: Any additional caption or text from the front of the card
+- caption: Additional caption text
 
-Expand abbreviations:
-- VG → VG-EX
-- EX → EX-MT
-- NM → NM-MT
-- etc.
+Normalize abbreviations: VG→VG-EX, EX→EX-MT, NM→NM-MT
 
-Fix common OCR misreads:
-- POW → Powell
-- etc.
-
-Return ONLY a valid JSON object with this exact structure:
+Return ONLY valid JSON with this structure:
 {
   "normalized": {
     "year": "",
@@ -268,34 +261,36 @@ Return ONLY a valid JSON object with this exact structure:
   }
 }
 
-For confidence scores, use values between 0.0 and 1.0. Use lower values (0.5-0.7) if the field is unclear or missing, and higher values (0.8-1.0) if the field is clearly identified.`;
+Confidence scores: 0.5-0.7 if unclear/missing, 0.8-1.0 if clearly identified.`;
 
     // Try with retry logic and fallback models
     let result;
     let lastError: Error | unknown;
     
-    // First, try to find a working model dynamically if the default fails
+    // Skip model discovery if we already have a working model (performance optimization)
     let modelsToTry = [modelToUse];
     
-    // If default model fails, try to find a working one
-    try {
-      const foundModel = await findWorkingModel(client, apiKey);
-      if (foundModel && !modelsToTry.includes(foundModel)) {
-        modelsToTry.push(foundModel);
+    // Only do model discovery if we don't have a cached working model
+    if (!modelDiscoveryDone) {
+      try {
+        const foundModel = await findWorkingModel(client, apiKey);
+        if (foundModel && !modelsToTry.includes(foundModel)) {
+          modelsToTry.push(foundModel);
+          workingGeminiModel = foundModel; // Cache the working model
+        }
+        modelDiscoveryDone = true; // Mark discovery as done
+      } catch (e) {
+        // If findWorkingModel fails, use hardcoded fallbacks
+        console.log("   ⚠️  Could not find working model dynamically, using fallbacks...");
       }
-    } catch (e) {
-      // If findWorkingModel fails, use hardcoded fallbacks
-      console.log("   ⚠️  Could not find working model dynamically, using fallbacks...");
     }
     
-    // Add fallback models (excluding gemini-pro which doesn't exist)
+    // Add fallback models (prioritize flash models for speed)
     const fallbackModels = [
-      "gemini-1.5-flash",
-      "gemini-1.5-pro",
-      "gemini-2.5-flash",
-      "gemini-2.5-pro",
+      "gemini-1.5-flash", // Fastest
       "gemini-flash-latest",
-      "gemini-pro-latest",
+      "gemini-2.5-flash",
+      "gemini-1.5-pro", // Fallback
     ];
     
     modelsToTry = [
@@ -309,15 +304,16 @@ For confidence scores, use values between 0.0 and 1.0. Use lower values (0.5-0.7
         const model = client.getGenerativeModel({ 
           model: currentModel,
           generationConfig: {
-            temperature: 0.3,
+            temperature: 0.2, // Lower temperature for faster, more deterministic responses
             responseMimeType: "application/json",
+            maxOutputTokens: 2000, // Increased to ensure complete JSON response
           },
         });
         
-        // Retry with exponential backoff for 503/429 errors
+        // Retry with exponential backoff for 503/429 errors (optimized delays)
         result = await retryWithBackoff(async () => {
           return await model.generateContent(prompt);
-        }, 3, 1000);
+        }, 3, 500); // Reduced base delay from 1000ms to 500ms
         
         // Success - update working model
         if (currentModel !== modelToUse) {
@@ -365,15 +361,49 @@ For confidence scores, use values between 0.0 and 1.0. Use lower values (0.5-0.7
       }
     }
     const response = result.response;
-    const content = response.text();
-
-    if (!content) {
-      throw new Error("No response from Gemini");
+    
+    // Better error handling for empty responses
+    if (!response) {
+      throw new Error("No response object from Gemini");
+    }
+    
+    let content: string;
+    try {
+      content = response.text();
+    } catch (textError) {
+      console.error("   ❌ Error getting text from response:", textError);
+      // Try to get candidates if available
+      if (response.candidates && response.candidates.length > 0) {
+        const candidate = response.candidates[0];
+        if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
+          content = candidate.content.parts[0].text || "";
+        }
+      }
+      if (!content) {
+        throw new Error(`Failed to extract text from response: ${textError instanceof Error ? textError.message : "Unknown error"}`);
+      }
     }
 
-    const parsed = JSON.parse(content);
+    if (!content || content.trim().length === 0) {
+      console.error("   ❌ Empty response content from Gemini");
+      console.error("   Response object:", JSON.stringify(response, null, 2));
+      throw new Error("No response content from Gemini - response was empty");
+    }
+    
+    console.log(`   📝 Response length: ${content.length} characters`);
+    console.log(`   📝 Response preview: ${content.substring(0, 200)}...`);
+
+    let parsed: NormalizeResponse;
+    try {
+      parsed = JSON.parse(content);
+    } catch (parseError) {
+      console.error("   ❌ Failed to parse JSON response");
+      console.error("   Response content:", content);
+      throw new Error(`Invalid JSON response from Gemini: ${parseError instanceof Error ? parseError.message : "Unknown parse error"}`);
+    }
+    
     console.log("✅ AI normalization completed");
-    return parsed as NormalizeResponse;
+    return parsed;
   } catch (error) {
     console.error("❌ AI Normalization Error:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
@@ -400,33 +430,33 @@ export async function generateTitleAndDescription(
     const titleContainsPlayerName = normalized.title && playerLastName && 
       normalized.title.toLowerCase().includes(playerLastName.toLowerCase());
 
-    const prompt = `Generate a title and description for this sports card based on the following information:
+    // Optimized prompt - balanced between speed and clarity
+    const prompt = `Generate a title and description for this sports card.
 
-Year: ${normalized.year}
-Set: ${normalized.set}
-Card Number: ${normalized.cardNumber}
-Player First Name: ${normalized.playerFirstName || ""}
-Player Last Name: ${normalized.playerLastName || ""}
-Grading Company: ${normalized.gradingCompany}
-Grade: ${normalized.grade}
-Card Title/Event: ${normalized.title || "None"}
+Card Information:
+- Year: ${normalized.year || ""}
+- Set: ${normalized.set || ""}
+- Card Number: ${normalized.cardNumber || ""}
+- Player: ${normalized.playerFirstName || ""} ${normalized.playerLastName || ""}
+- Grading Company: ${normalized.gradingCompany || ""}
+- Grade: ${normalized.grade || ""}
+- Card Title/Event: ${normalized.title || "None"}
 
-CRITICAL INSTRUCTIONS FOR TITLE FORMAT:
+Title Format Instructions:
 ${titleContainsPlayerName 
   ? `The card title "${normalized.title}" already contains the player's last name "${playerLastName}". 
-     Format: [year] [set] [card title/event as-is] #[cardNumber] [gradingCompany] [grade]
-     DO NOT include the player's name separately since it's already in the card title.`
-  : `Format: [year] [set] [playerFirstName] [playerLastName] [card title/event if different from player name] #[cardNumber] [gradingCompany] [grade]
-     Special designations include: rookie, logo patch, jersey patch, signed, etc.`}
+Format: [year] [set] [card title as-is] #[cardNumber] [gradingCompany] [grade]
+DO NOT include the player's name separately since it's already in the card title.`
+  : `Format: [year] [set] [playerFirstName] [playerLastName] [card title/event if different] #[cardNumber] [gradingCompany] [grade]
+Include special designations like: rookie, logo patch, jersey patch, signed, etc.`}
+
+Description Format: [repeat title], [player name]. [brief description of why player is important]. [why this card is valuable].
 
 Examples:
 - "1972 Topps Nolan Ryan #595 PSA NM-MT 8"
 - "1955 Topps Sandy Koufax Rookie #123 PSA VG-EX 4"
-- If card title is "Powell Homers to Opposite Field!" and player is "Powell", use: "1971 O-Pee-Chee Powell Homers to Opposite Field! #327 PSA VG-EX 4" (NOT "Powell Powell...")
 
-Description Format: [repeat title], [player name]. [description of why player is important]. [why card is good].
-
-Return ONLY a valid JSON object:
+Return ONLY valid JSON:
 {
   "autoTitle": "",
   "autoDescription": ""
@@ -450,14 +480,12 @@ Return ONLY a valid JSON object:
       console.log("   ⚠️  Could not find working model dynamically, using fallbacks...");
     }
     
-    // Add fallback models (excluding gemini-pro which doesn't exist)
+    // Add fallback models (prioritize flash models for speed)
     const fallbackModels = [
-      "gemini-1.5-flash",
-      "gemini-1.5-pro",
-      "gemini-2.5-flash",
-      "gemini-2.5-pro",
+      "gemini-1.5-flash", // Fastest
       "gemini-flash-latest",
-      "gemini-pro-latest",
+      "gemini-2.5-flash",
+      "gemini-1.5-pro", // Fallback
     ];
     
     modelsToTry = [
@@ -471,15 +499,16 @@ Return ONLY a valid JSON object:
         const model = client.getGenerativeModel({ 
           model: currentModel,
           generationConfig: {
-            temperature: 0.3,
+            temperature: 0.2, // Lower temperature for faster, more deterministic responses
             responseMimeType: "application/json",
+            maxOutputTokens: 1000, // Increased to ensure complete JSON response
           },
         });
         
-        // Retry with exponential backoff for 503/429 errors
+        // Retry with exponential backoff for 503/429 errors (optimized delays)
         result = await retryWithBackoff(async () => {
           return await model.generateContent(prompt);
-        }, 3, 1000);
+        }, 3, 500); // Reduced base delay from 1000ms to 500ms
         
         // Success - update working model
         if (currentModel !== modelToUse) {
@@ -527,15 +556,47 @@ Return ONLY a valid JSON object:
       }
     }
     const response = result.response;
-    const content = response.text();
-
-    if (!content) {
-      throw new Error("No response from Gemini");
+    
+    // Better error handling for empty responses
+    if (!response) {
+      throw new Error("No response object from Gemini");
+    }
+    
+    let content: string;
+    try {
+      content = response.text();
+    } catch (textError) {
+      console.error("   ❌ Error getting text from response:", textError);
+      // Try to get candidates if available
+      if (response.candidates && response.candidates.length > 0) {
+        const candidate = response.candidates[0];
+        if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
+          content = candidate.content.parts[0].text || "";
+        }
+      }
+      if (!content) {
+        throw new Error(`Failed to extract text from response: ${textError instanceof Error ? textError.message : "Unknown error"}`);
+      }
     }
 
-    const parsed = JSON.parse(content);
+    if (!content || content.trim().length === 0) {
+      console.error("   ❌ Empty response content from Gemini");
+      throw new Error("No response content from Gemini - response was empty");
+    }
+    
+    console.log(`   📝 Response length: ${content.length} characters`);
+
+    let parsed: TitleDescriptionResponse;
+    try {
+      parsed = JSON.parse(content);
+    } catch (parseError) {
+      console.error("   ❌ Failed to parse JSON response");
+      console.error("   Response content:", content);
+      throw new Error(`Invalid JSON response from Gemini: ${parseError instanceof Error ? parseError.message : "Unknown parse error"}`);
+    }
+    
     console.log("✅ Title and description generated");
-    return parsed as TitleDescriptionResponse;
+    return parsed;
   } catch (error) {
     console.error("❌ Title/Description Generation Error:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error";

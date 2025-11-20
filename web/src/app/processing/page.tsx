@@ -4,9 +4,18 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { processImage } from "@/lib/api";
 
+interface ProcessingTimings {
+  upload?: number;
+  ocr?: number;
+  normalization?: number;
+  titleGeneration?: number;
+  total?: number;
+}
+
 export default function ProcessingPage() {
   const router = useRouter();
   const [status, setStatus] = useState("Processing image...");
+  const [timings, setTimings] = useState<ProcessingTimings>({});
 
   useEffect(() => {
     const processCard = async () => {
@@ -20,12 +29,39 @@ export default function ProcessingPage() {
           return;
         }
 
+        // Get upload timing if available
+        const uploadTiming = sessionStorage.getItem("uploadTiming");
+        const allTimings: ProcessingTimings = {};
+        
+        // Add upload timing if available
+        if (uploadTiming) {
+          allTimings.upload = parseFloat(uploadTiming);
+          console.log("📊 Upload timing retrieved:", allTimings.upload, "s");
+          setTimings({ ...allTimings });
+        } else {
+          console.warn("⚠️ Upload timing not found in sessionStorage");
+        }
+        
         setStatus("Running OCR...");
         const result = await processImage(filename, sourceImageId, url);
         
         // Store card data
         sessionStorage.setItem("currentCardId", result.cardId);
         sessionStorage.setItem("cardData", JSON.stringify(result.card));
+        
+        // Merge all timings (preserve upload timing, add processing timings)
+        if (result.timings) {
+          const finalTimings = {
+            ...allTimings, // Includes upload timing if it exists
+            ...result.timings, // OCR, normalization, titleGeneration, total
+          };
+          setTimings(finalTimings);
+          sessionStorage.setItem("processingTimings", JSON.stringify(finalTimings));
+        } else if (allTimings.upload) {
+          // If no processing timings but we have upload timing, still save it
+          setTimings(allTimings);
+          sessionStorage.setItem("processingTimings", JSON.stringify(allTimings));
+        }
         
         setStatus("Complete!");
         setTimeout(() => {
@@ -97,6 +133,49 @@ export default function ProcessingPage() {
             <p className="text-gray-300">
               Please wait while we extract and process your card information...
             </p>
+          )}
+          
+          {/* Display timings breakdown */}
+          {Object.keys(timings).length > 0 && (
+            <div className="mt-8 max-w-md mx-auto">
+              <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-6">
+                <h3 className="text-lg font-semibold text-white mb-4 text-center">
+                  Processing Breakdown
+                </h3>
+                <div className="space-y-2">
+                  {timings.upload !== undefined && (
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-gray-400">Image Upload</span>
+                      <span className="text-blue-400 font-mono">{timings.upload}s</span>
+                    </div>
+                  )}
+                  {timings.ocr !== undefined && (
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-gray-400">OCR Extraction</span>
+                      <span className="text-blue-400 font-mono">{timings.ocr}s</span>
+                    </div>
+                  )}
+                  {timings.normalization !== undefined && (
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-gray-400">AI Normalization</span>
+                      <span className="text-blue-400 font-mono">{timings.normalization}s</span>
+                    </div>
+                  )}
+                  {timings.titleGeneration !== undefined && (
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-gray-400">Title Generation</span>
+                      <span className="text-blue-400 font-mono">{timings.titleGeneration}s</span>
+                    </div>
+                  )}
+                  {timings.total !== undefined && (
+                    <div className="flex justify-between items-center text-sm pt-2 mt-2 border-t border-gray-700">
+                      <span className="text-white font-semibold">Total Processing Time</span>
+                      <span className="text-green-400 font-mono font-semibold">{timings.total}s</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </div>

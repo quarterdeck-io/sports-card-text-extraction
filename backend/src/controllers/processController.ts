@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import path from "path";
 import fs from "fs";
+import { performance } from "perf_hooks";
 import { config } from "../config";
 import { extractTextFromImage } from "../services/ocrService";
 import { normalizeCardText, generateTitleAndDescription } from "../services/aiService";
@@ -8,9 +9,12 @@ import { randomUUID } from "crypto";
 import { CardRecord } from "../types";
 import { cardsStore } from "../models/cardStore";
 
-const router = Router();
+const router: Router = Router();
 
 router.post("/", async (req: Request, res: Response) => {
+  const timings: Record<string, number> = {};
+  const totalStartTime = performance.now();
+  
   try {
     console.log("🚀 Starting card processing pipeline...");
     const { filename, sourceImageId, url } = req.body;
@@ -24,6 +28,8 @@ router.post("/", async (req: Request, res: Response) => {
 
     // Step 1: OCR
     console.log("\n--- Step 1: OCR Extraction ---");
+    const ocrStartTime = performance.now();
+    
     // Build image path - handle both absolute and relative paths
     const uploadDir = config.upload.dir;
     const imagePath = path.isAbsolute(uploadDir) 
@@ -45,7 +51,10 @@ router.post("/", async (req: Request, res: Response) => {
     let ocrResult;
     try {
       ocrResult = await extractTextFromImage(imagePath);
+      const ocrEndTime = performance.now();
+      timings.ocr = Math.round((ocrEndTime - ocrStartTime) / 100) / 10; // Round to 1 decimal place
       console.log(`   Extracted ${ocrResult.rawOcrText.length} characters`);
+      console.log(`   ⏱️  OCR took ${timings.ocr}s`);
       
       // Check if OCR extracted any text
       if (!ocrResult.rawOcrText || ocrResult.rawOcrText.trim().length === 0) {
@@ -91,10 +100,14 @@ router.post("/", async (req: Request, res: Response) => {
 
     // Step 2: Normalize
     console.log("\n--- Step 2: AI Normalization ---");
+    const normalizeStartTime = performance.now();
     let normalizeResult;
     try {
       normalizeResult = await normalizeCardText(ocrResult.rawOcrText);
+      const normalizeEndTime = performance.now();
+      timings.normalization = Math.round((normalizeEndTime - normalizeStartTime) / 100) / 10;
       console.log("   Normalization completed");
+      console.log(`   ⏱️  Normalization took ${timings.normalization}s`);
     } catch (normalizeError: any) {
       console.error("❌ AI Normalization failed:", normalizeError);
       const normalizeErrorMessage = normalizeError instanceof Error ? normalizeError.message : "Unknown error";
@@ -134,27 +147,8 @@ router.post("/", async (req: Request, res: Response) => {
       }
     }
 
-    // Step 3: Generate title and description
-    console.log("\n--- Step 3: Generate Title/Description ---");
-    let titleDescResult;
-    try {
-      titleDescResult = await generateTitleAndDescription(normalizeResult.normalized);
-      console.log("   Title/Description generated");
-    } catch (titleError: any) {
-      console.error("❌ Title/Description generation failed:", titleError);
-      const titleErrorMessage = titleError instanceof Error ? titleError.message : "Unknown error";
-      
-      // If title generation fails, we can still proceed with empty title/description
-      // But log the error for debugging
-      console.warn("⚠️  Continuing without auto-generated title/description");
-      titleDescResult = {
-        autoTitle: "",
-        autoDescription: "",
-      };
-    }
-
-    // Step 4: Create card record
-    console.log("\n--- Step 4: Creating Card Record ---");
+    // Step 3: Create card record first (before background title generation)
+    console.log("\n--- Step 3: Creating Card Record ---");
     const cardId = randomUUID();
     const now = new Date().toISOString();
 
@@ -169,8 +163,8 @@ router.post("/", async (req: Request, res: Response) => {
       ocrBlocks: ocrResult.ocrBlocks,
       normalized: normalizeResult.normalized,
       confidenceByField: normalizeResult.confidenceByField,
-      autoTitle: titleDescResult.autoTitle,
-      autoDescription: titleDescResult.autoDescription,
+      autoTitle: "", // Will be filled in background
+      autoDescription: "", // Will be filled in background
       processingStatus: "ready_for_review",
       errors: [],
       createdAt: now,
@@ -178,10 +172,51 @@ router.post("/", async (req: Request, res: Response) => {
     };
 
     cardsStore.set(cardId, card);
+    
+    // Step 4: Generate title and description (NON-BLOCKING - runs in background)
+    console.log("\n--- Step 4: Generate Title/Description (background) ---");
+    
+    // Start title generation in background (don't await - return immediately)
+    const titleStartTime = performance.now();
+    generateTitleAndDescription(normalizeResult.normalized)
+      .then((result) => {
+        const titleEndTime = performance.now();
+        const titleTime = Math.round((titleEndTime - titleStartTime) / 100) / 10;
+        console.log("   ✅ Title/Description generated in background");
+        console.log(`   ⏱️  Title generation took ${titleTime}s`);
+        
+        // Update the card record with the generated title/description
+        const existingCard = cardsStore.get(cardId);
+        if (existingCard) {
+          existingCard.autoTitle = result.autoTitle;
+          existingCard.autoDescription = result.autoDescription;
+          existingCard.updatedAt = new Date().toISOString();
+          cardsStore.set(cardId, existingCard);
+          console.log(`   📝 Card ${cardId} updated with title/description`);
+        }
+      })
+      .catch((titleError: any) => {
+        console.error("❌ Title/Description generation failed (background):", titleError);
+        // Non-blocking error - card is already created, just log it
+        console.warn("⚠️  Title generation failed, but card processing completed");
+      });
+    
+    // Don't wait for title generation - return immediately
+    console.log("   ⚡ Title generation started in background, returning response immediately");
+    
+    const totalEndTime = performance.now();
+    timings.total = Math.round((totalEndTime - totalStartTime) / 100) / 10;
+    
     console.log(`✅ Card processing completed successfully! Card ID: ${cardId}`);
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    console.log("⏱️  Processing Timings:");
+    console.log(`   OCR: ${timings.ocr}s`);
+    console.log(`   AI Normalization: ${timings.normalization}s`);
+    console.log(`   Title Generation: Running in background (non-blocking)`);
+    console.log(`   Total (blocking): ${timings.total}s`);
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 
-    res.json({ cardId, card });
+    res.json({ cardId, card, timings });
   } catch (error) {
     console.error("\n❌ Processing error:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error";

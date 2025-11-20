@@ -61,3 +61,7 @@ backend/node_modules/
 backend/dist/
 backend/*.log
 
+# Documentation (internal - not for client)
+*.md
+!README.md
+

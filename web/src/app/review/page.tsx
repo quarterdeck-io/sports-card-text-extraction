@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle, AlertCircle, Download, FileSpreadsheet } from "lucide-react";
-import { getExportPreference, type ExportType } from "@/lib/exportPreferences";
+import { getExportPreference, saveExportPreference, type ExportType } from "@/lib/exportPreferences";
 import api from "@/lib/api";
 import ExportSuccessModal from "@/components/ExportSuccessModal";
 
@@ -117,6 +117,96 @@ export default function ReviewPage() {
     }
   };
 
+  const handleExportCSV = async () => {
+    const cardId = sessionStorage.getItem("currentCardId");
+    if (!cardId) {
+      alert("No card data found. Please upload an image first.");
+      router.push("/upload");
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      const response = await api.post(
+        "/api/export/csv",
+        { cardId },
+        {
+          responseType: "blob",
+        }
+      );
+
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `card-${cardId}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      // Save preference
+      saveExportPreference("csv");
+      setSavedPreference("csv");
+      setIsModalOpen(true);
+      
+      // Auto-redirect to upload page after 1.5 seconds
+      setTimeout(() => {
+        setIsModalOpen(false);
+        router.push("/upload");
+      }, 1500);
+    } catch (error) {
+      console.error("CSV export error:", error);
+      alert("Failed to export CSV. Please try again.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleExportSheets = async () => {
+    const cardId = sessionStorage.getItem("currentCardId");
+    if (!cardId) {
+      alert("No card data found. Please upload an image first.");
+      router.push("/upload");
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      const response = await api.post("/api/export/sheets", { cardId });
+      
+      // Save preference
+      saveExportPreference("sheets");
+      setSavedPreference("sheets");
+      
+      if (response.data.sheetUrl) {
+        // Open Google Sheet in new tab
+        window.open(response.data.sheetUrl, "_blank");
+        setIsModalOpen(true);
+        sessionStorage.setItem("sheetUrl", response.data.sheetUrl);
+        
+        // Auto-redirect to upload page after 1.5 seconds
+        setTimeout(() => {
+          setIsModalOpen(false);
+          router.push("/upload");
+        }, 1500);
+      } else {
+        setIsModalOpen(true);
+        // Auto-redirect immediately if no sheet URL
+        setTimeout(() => {
+          setIsModalOpen(false);
+          router.push("/upload");
+        }, 500);
+      }
+    } catch (error: any) {
+      console.error("Google Sheets export error:", error);
+      const errorMessage = error.response?.data?.error || "Failed to export to Google Sheets. Please try again.";
+      alert(errorMessage);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const handleExport = () => {
     router.push("/export");
   };
@@ -144,40 +234,48 @@ export default function ReviewPage() {
           </div>
         </div>
 
-        <div className="flex justify-end gap-4">
+        <div className="flex justify-end gap-4 flex-wrap">
           <button
             onClick={() => router.push("/upload")}
             className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700"
           >
             Cancel
           </button>
-          {savedPreference && (
+          
+          {/* Direct Export Buttons */}
+          <div className="flex gap-3">
             <button
-              onClick={handleQuickExport}
+              onClick={handleExportCSV}
               disabled={isExporting}
-              className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="px-6 py-2 bg-[#1e3a5f] text-white rounded-lg hover:bg-[#2a4f7a] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
-              {savedPreference === "csv" ? (
-                <Download className="w-4 h-4" />
-              ) : (
-                <FileSpreadsheet className="w-4 h-4" />
-              )}
-              {isExporting ? "Exporting..." : `Quick Export (${savedPreference === "csv" ? "CSV" : "Sheets"})`}
+              <Download className="w-4 h-4" />
+              {isExporting ? "Exporting..." : "Download CSV"}
             </button>
-          )}
+            <button
+              onClick={handleExportSheets}
+              disabled={isExporting}
+              className="px-6 py-2 bg-[#1e3a5f] text-white rounded-lg hover:bg-[#2a4f7a] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              {isExporting ? "Exporting..." : "Download Sheet"}
+            </button>
+          </div>
+          
+          {/* Optional: Keep export page link for changing preferences */}
           <button
             onClick={handleExport}
-            className="px-6 py-2 bg-[#1e3a5f] text-white rounded-lg hover:bg-[#2a4f7a]"
+            className="px-4 py-2 text-gray-600 hover:text-gray-800 text-sm underline"
           >
-            {savedPreference ? "Choose Export Method" : "Continue to Export"}
+            Change Export Settings
           </button>
         </div>
 
         <ExportSuccessModal
           isOpen={isModalOpen}
           onClose={() => setIsModalOpen(false)}
-          onDownloadCSV={savedPreference === "csv" ? handleQuickExport : undefined}
-          onOpenGoogleSheet={savedPreference === "sheets" ? handleQuickExport : undefined}
+          onDownloadCSV={handleExportCSV}
+          onOpenGoogleSheet={handleExportSheets}
         />
       </div>
     </div>

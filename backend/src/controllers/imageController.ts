@@ -2,10 +2,11 @@ import { Router, Request, Response } from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { performance } from "perf_hooks";
 import { config } from "../config";
 import { randomUUID } from "crypto";
 
-const router = Router();
+const router: Router = Router();
 
 // Ensure upload directory exists
 const uploadDir = config.upload.dir;
@@ -45,6 +46,8 @@ const upload = multer({
 });
 
 router.post("/", upload.single("image"), (req: Request, res: Response) => {
+  const uploadStartTime = performance.now();
+  
   try {
     if (!req.file) {
       // Check if it's a multer error
@@ -71,9 +74,13 @@ router.post("/", upload.single("image"), (req: Request, res: Response) => {
 
     const imageId = randomUUID();
     const imageUrl = `/uploads/${req.file.filename}`;
+    
+    const uploadEndTime = performance.now();
+    const uploadTime = Math.round((uploadEndTime - uploadStartTime) / 100) / 10;
 
     console.log(`✅ Image uploaded: ${req.file.filename} (${req.file.size} bytes)`);
     console.log(`   Saved to: ${path.join(uploadDir, req.file.filename)}`);
+    console.log(`   ⏱️  Upload took ${uploadTime}s`);
 
     res.json({
       sourceImageId: imageId,
@@ -81,6 +88,9 @@ router.post("/", upload.single("image"), (req: Request, res: Response) => {
       url: imageUrl,
       size: req.file.size,
       mimetype: req.file.mimetype,
+      timings: {
+        upload: uploadTime,
+      },
     });
   } catch (error) {
     console.error("Image upload error:", error);
