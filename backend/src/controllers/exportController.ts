@@ -368,6 +368,24 @@ router.post("/sheets", async (req: Request, res: Response) => {
         "Auto Description",
       ];
       
+      // First, clear any columns beyond L (M, N, etc.) to remove duplicates
+      // Get the total number of rows to clear
+      const totalRows = existingData.data.values?.length || 1;
+      if (totalRows > 0) {
+        // Clear columns M-Z (13-26) if they exist
+        const clearRange = `${sheetName}!M1:Z${totalRows}`;
+        try {
+          await sheets.spreadsheets.values.clear({
+            spreadsheetId,
+            range: clearRange,
+          });
+          console.log(`🧹 Cleared columns M-Z to remove duplicate headers`);
+        } catch (error) {
+          // Ignore if range doesn't exist
+          console.log(`   (No columns beyond L to clear)`);
+        }
+      }
+      
       const headerRange = `${sheetName}!A1:L1`; // 12 columns (A-L)
       
       console.log(`📝 ${nextRow === 1 ? 'Creating' : 'Updating'} header row with range: ${headerRange}`);
@@ -408,6 +426,65 @@ router.post("/sheets", async (req: Request, res: Response) => {
     console.log(`   ✅ Listing Title written to column E: "${rowData[4]?.substring(0, 50) || ""}..."`);
     console.log(`   ✅ Caption written to column K: "${rowData[10]?.substring(0, 50) || ""}..."`);
     console.log(`   ✅ Auto Description written to column L: "${rowData[11]?.substring(0, 50) || ""}..."`);
+
+    // Clean up empty rows (skip header row)
+    try {
+      const allData = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `${sheetName}!A:L`,
+      });
+      
+      if (allData.data.values && allData.data.values.length > 1) {
+        // Get sheet ID for deletion
+        const sheetInfo = await sheets.spreadsheets.get({ spreadsheetId });
+        const sheetId = sheetInfo.data.sheets?.find(s => s.properties?.title === sheetName)?.properties?.sheetId;
+        
+        if (!sheetId) {
+          console.warn(`⚠️  Could not find sheet ID for cleanup`);
+        } else {
+          const rowsToDelete: number[] = [];
+          
+          // Check each row (skip header row at index 0)
+          for (let i = 1; i < allData.data.values.length; i++) {
+            const row = allData.data.values[i];
+            // Check if row is empty (all cells are empty or whitespace)
+            const isEmpty = !row || row.every((cell: string) => !cell || cell.trim() === "");
+            if (isEmpty) {
+              rowsToDelete.push(i + 1); // +1 because sheet rows are 1-indexed
+            }
+          }
+          
+          // Delete empty rows from bottom to top to maintain correct indices
+          if (rowsToDelete.length > 0) {
+            rowsToDelete.sort((a, b) => b - a); // Sort descending
+            
+            for (const rowNum of rowsToDelete) {
+              await sheets.spreadsheets.batchUpdate({
+                spreadsheetId,
+                requestBody: {
+                  requests: [
+                    {
+                      deleteDimension: {
+                        range: {
+                          sheetId: sheetId,
+                          dimension: "ROWS",
+                          startIndex: rowNum - 1, // 0-indexed
+                          endIndex: rowNum,
+                        },
+                      },
+                    },
+                  ],
+                },
+              });
+            }
+            console.log(`🧹 Cleaned up ${rowsToDelete.length} empty row(s)`);
+          }
+        }
+      }
+    } catch (cleanupError) {
+      // Don't fail the export if cleanup fails
+      console.warn(`⚠️  Row cleanup failed (non-critical):`, cleanupError);
+    }
 
     const sheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
 
