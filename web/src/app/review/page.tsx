@@ -24,6 +24,7 @@ const fieldLabels: Record<string, string> = {
   cert: "Cert",
   description: "Description",
   caption: "Caption",
+  sku: "SKU",
 };
 
 export default function ReviewPage() {
@@ -41,6 +42,7 @@ export default function ReviewPage() {
     cert: "",
     description: "", // Auto-generated description (autoDescription)
     caption: "", // Original caption from OCR (normalized.caption)
+    sku: "", // User-entered SKU
   });
   const [autoTitle, setAutoTitle] = useState<string>("");
   const [autoDescription, setAutoDescription] = useState<string>("");
@@ -83,6 +85,7 @@ export default function ReviewPage() {
                 ? cardData.autoDescription
                 : "", // Auto-generated description
               caption: normalizedFields.caption || "", // Original caption from OCR
+              sku: normalizedFields.sku || "", // User-entered SKU
             };
             
             if (cardData.autoTitle && cardData.autoTitle.trim() !== "") {
@@ -286,7 +289,7 @@ export default function ReviewPage() {
 
   // Separate fields: regular fields + Title and Caption (above divider)
   // Bottom fields: Listing Title and Description (below divider)
-  // Order: year, set, cardNumber, playerFirstName, playerLastName, gradingCompany, grade, cert, title, caption
+  // Order: year, set, cardNumber, playerFirstName, playerLastName, gradingCompany, grade, cert, title, caption, sku
   const regularFieldsOrder = [
     "year",
     "set",
@@ -298,6 +301,7 @@ export default function ReviewPage() {
     "cert",
     "title",
     "caption",
+    "sku",
   ];
   const regularFields = regularFieldsOrder.map(key => [key, fields[key as keyof typeof fields]]);
   
@@ -321,6 +325,25 @@ export default function ReviewPage() {
 
     setIsExporting(true);
     try {
+      // Save field changes (including SKU) to backend before exporting
+      await api.put(`/api/cards/${cardId}`, {
+        normalized: {
+          year: fields.year,
+          set: fields.set,
+          sku: fields.sku,
+          cardNumber: fields.cardNumber,
+          title: fields.title,
+          playerFirstName: fields.playerFirstName,
+          playerLastName: fields.playerLastName,
+          gradingCompany: fields.gradingCompany,
+          grade: fields.grade,
+          cert: fields.cert,
+          caption: fields.caption,
+        },
+        autoTitle: fields.listingTitle,
+        autoDescription: fields.description,
+      });
+
       if (savedPreference === "csv") {
         const response = await api.post(
           "/api/export/csv",
@@ -383,6 +406,25 @@ export default function ReviewPage() {
 
     setIsExporting(true);
     try {
+      // Save field changes (including SKU) to backend before exporting
+      await api.put(`/api/cards/${cardId}`, {
+        normalized: {
+          year: fields.year,
+          set: fields.set,
+          sku: fields.sku,
+          cardNumber: fields.cardNumber,
+          title: fields.title,
+          playerFirstName: fields.playerFirstName,
+          playerLastName: fields.playerLastName,
+          gradingCompany: fields.gradingCompany,
+          grade: fields.grade,
+          cert: fields.cert,
+          caption: fields.caption,
+        },
+        autoTitle: fields.listingTitle,
+        autoDescription: fields.description,
+      });
+
       const response = await api.post(
         "/api/export/csv",
         { cardId },
@@ -429,6 +471,25 @@ export default function ReviewPage() {
 
     setIsExporting(true);
     try {
+      // Save field changes (including SKU) to backend before exporting
+      await api.put(`/api/cards/${cardId}`, {
+        normalized: {
+          year: fields.year,
+          set: fields.set,
+          sku: fields.sku,
+          cardNumber: fields.cardNumber,
+          title: fields.title,
+          playerFirstName: fields.playerFirstName,
+          playerLastName: fields.playerLastName,
+          gradingCompany: fields.gradingCompany,
+          grade: fields.grade,
+          cert: fields.cert,
+          caption: fields.caption,
+        },
+        autoTitle: fields.listingTitle,
+        autoDescription: fields.description,
+      });
+
       const response = await api.post("/api/export/sheets", { cardId });
       
       // Save preference

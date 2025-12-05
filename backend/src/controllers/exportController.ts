@@ -89,6 +89,7 @@ router.post("/csv", (req: Request, res: Response) => {
         Cert: card.normalized.cert,
         Caption: caption,
         "Auto Description": autoDescription || "", // Ensure it's never undefined
+        SKU: card.normalized.sku || "", // SKU at the end
       },
     ];
 
@@ -124,6 +125,10 @@ router.post("/sheets", async (req: Request, res: Response) => {
     console.log(`   card.autoDescription exists: ${!!card.autoDescription}`);
     console.log(`   card.autoDescription type: ${typeof card.autoDescription}`);
     console.log(`   card.autoDescription value: "${card.autoDescription?.substring(0, 100) || ""}..."`);
+    console.log(`   card.normalized.sku exists: ${!!card.normalized?.sku}`);
+    console.log(`   card.normalized.sku value: "${card.normalized?.sku || ""}"`);
+    console.log(`   card.normalized.cardNumber value: "${card.normalized?.cardNumber || ""}"`);
+    console.log(`   card.normalized.title value: "${card.normalized?.title || ""}"`);
     
     // Safety check: If autoTitle looks like description, swap them
     if (card.autoTitle && card.autoDescription) {
@@ -257,9 +262,9 @@ router.post("/sheets", async (req: Request, res: Response) => {
     const nextRow = (existingData.data.values?.length || 0) + 1;
 
     // Verify headers if they exist and update if needed
-    // New format: 12 columns (A-L)
+    // New format: 13 columns (A-M, with SKU at the end in column N)
     // Year, Set, Card Number, Title, Listing Title, Player First Name, Player Last Name,
-    // Grading Company, Grade, Cert, Description, Auto Description
+    // Grading Company, Grade, Cert, Caption, Auto Description, SKU
     let needsHeaderUpdate = false;
     
     if (existingData.data.values && existingData.data.values.length > 0) {
@@ -277,6 +282,7 @@ router.post("/sheets", async (req: Request, res: Response) => {
         "Cert",
         "Caption",
         "Auto Description",
+        "SKU",
       ];
       
       console.log(`📋 Existing headers in sheet:`, existingHeaders);
@@ -304,55 +310,68 @@ router.post("/sheets", async (req: Request, res: Response) => {
     }
 
     // Ensure all values are strings and not undefined/null
+    // IMPORTANT: Get SKU directly from normalized, ensure it's a separate field
+    const safeSku = String(card.normalized?.sku || "").trim();
     const safeTitle = String(title || "");
     const safeListingTitle = String(listingTitle || "");
     const safeCaption = String(caption || "");
     const safeAutoDescription = String(autoDescription || "");
+    const safeCardNumber = String(card.normalized?.cardNumber || "");
     
-    // Log exactly what we're writing to each column
-    console.log(`📝 FINAL rowData values being written:`);
-    console.log(`   [0] Year: "${card.normalized.year || ""}"`);
-    console.log(`   [1] Set: "${card.normalized.set || ""}"`);
-    console.log(`   [2] Card Number: "${card.normalized.cardNumber || ""}"`);
-    console.log(`   [3] Title: "${safeTitle}" (${safeTitle.length} chars)`);
-    console.log(`   [4] Listing Title: "${safeListingTitle}" (${safeListingTitle.length} chars)`);
-    console.log(`   [5] Player First Name: "${card.normalized.playerFirstName || ""}"`);
-    console.log(`   [6] Player Last Name: "${card.normalized.playerLastName || ""}"`);
-    console.log(`   [7] Grading Company: "${card.normalized.gradingCompany || ""}"`);
-    console.log(`   [8] Grade: "${card.normalized.grade || ""}"`);
-    console.log(`   [9] Cert: "${card.normalized.cert || ""}"`);
-    console.log(`   [10] Caption: "${safeCaption}" (${safeCaption.length} chars)`);
-    console.log(`   [11] Auto Description: "${safeAutoDescription.substring(0, 80)}..." (${safeAutoDescription.length} chars)`);
+    // Debug: Log SKU value to ensure it's correct
+    console.log(`🔍 SKU Export Debug:`);
+    console.log(`   card.normalized.sku: "${card.normalized?.sku}"`);
+    console.log(`   safeSku: "${safeSku}"`);
+    console.log(`   card.normalized.cardNumber: "${safeCardNumber}"`);
+    console.log(`   card.normalized.title: "${safeTitle}"`);
     
     // Build rowData array with new structure:
     // Year, Set, Card Number, Title, Listing Title, Player First Name, Player Last Name,
-    // Grading Company, Grade, Cert, Caption, Auto Description
+    // Grading Company, Grade, Cert, Caption, Auto Description, SKU (at the end)
+    // IMPORTANT: SKU is at the end (column N) to avoid misalignment
     const rowData = [
-      String(card.normalized.year || ""),
-      String(card.normalized.set || ""),
-      String(card.normalized.cardNumber || ""),
-      safeTitle, // Title (normalized.title) - COLUMN D (index 3)
-      safeListingTitle, // Listing Title (autoTitle) - COLUMN E (index 4)
-      String(card.normalized.playerFirstName || ""),
-      String(card.normalized.playerLastName || ""),
-      String(card.normalized.gradingCompany || ""),
-      String(card.normalized.grade || ""),
-      String(card.normalized.cert || ""),
-      safeCaption, // Caption (normalized.caption) - COLUMN K (index 10)
-      safeAutoDescription, // Auto Description (autoDescription) - COLUMN L (index 11)
+      String(card.normalized?.year || ""),           // [0] Year - Column A
+      String(card.normalized?.set || ""),            // [1] Set - Column B
+      safeCardNumber,                                // [2] Card Number - Column C
+      safeTitle,                                     // [3] Title - Column D
+      safeListingTitle,                              // [4] Listing Title - Column E
+      String(card.normalized?.playerFirstName || ""), // [5] Player First Name - Column F
+      String(card.normalized?.playerLastName || ""),  // [6] Player Last Name - Column G
+      String(card.normalized?.gradingCompany || ""),  // [7] Grading Company - Column H
+      String(card.normalized?.grade || ""),          // [8] Grade - Column I
+      String(card.normalized?.cert || ""),           // [9] Cert - Column J
+      safeCaption,                                   // [10] Caption - Column K
+      safeAutoDescription,                           // [11] Auto Description - Column L
+      safeSku,                                       // [12] SKU - Column M (user-entered, can be empty)
     ];
     
-    const expectedLength = 12; // 12 columns total
+    const expectedLength = 13; // 13 columns total
     if (rowData.length !== expectedLength) {
       console.error(`❌ CRITICAL ERROR: rowData has ${rowData.length} elements, expected ${expectedLength}!`);
       throw new Error(`Row data array has incorrect length: ${rowData.length} instead of ${expectedLength}`);
     }
     
+    // Log exactly what we're writing to each column (after rowData is created)
+    console.log(`📝 FINAL rowData values being written:`);
+    console.log(`   [0] Year (A): "${rowData[0]}"`);
+    console.log(`   [1] Set (B): "${rowData[1]}"`);
+    console.log(`   [2] Card Number (C): "${rowData[2]}"`);
+    console.log(`   [3] Title (D): "${rowData[3]}"`);
+    console.log(`   [4] Listing Title (E): "${rowData[4]}"`);
+    console.log(`   [5] Player First Name (F): "${rowData[5]}"`);
+    console.log(`   [6] Player Last Name (G): "${rowData[6]}"`);
+    console.log(`   [7] Grading Company (H): "${rowData[7]}"`);
+    console.log(`   [8] Grade (I): "${rowData[8]}"`);
+    console.log(`   [9] Cert (J): "${rowData[9]}"`);
+    console.log(`   [10] Caption (K): "${rowData[10]}"`);
+    console.log(`   [11] Auto Description (L): "${rowData[11]?.substring(0, 80) || ""}..."`);
+    console.log(`   [12] SKU (M): "${rowData[12]}" <-- SKU at the end`);
+    
     console.log(`✅ rowData validation passed: ${rowData.length} columns`);
 
     // Add or update header row if needed
     if (nextRow === 1 || needsHeaderUpdate) {
-      // New format: 12 columns
+      // New format: 13 columns (A-M, with SKU at the end)
       const headers = [
         "Year",
         "Set",
@@ -366,27 +385,28 @@ router.post("/sheets", async (req: Request, res: Response) => {
         "Cert",
         "Caption",
         "Auto Description",
+        "SKU",
       ];
       
-      // First, clear any columns beyond L (M, N, etc.) to remove duplicates
+      // First, clear any columns beyond M (N, O, etc.) to remove duplicates
       // Get the total number of rows to clear
       const totalRows = existingData.data.values?.length || 1;
       if (totalRows > 0) {
-        // Clear columns M-Z (13-26) if they exist
-        const clearRange = `${sheetName}!M1:Z${totalRows}`;
+        // Clear columns N-Z (14-26) if they exist
+        const clearRange = `${sheetName}!N1:Z${totalRows}`;
         try {
           await sheets.spreadsheets.values.clear({
             spreadsheetId,
             range: clearRange,
           });
-          console.log(`🧹 Cleared columns M-Z to remove duplicate headers`);
+          console.log(`🧹 Cleared columns N-Z to remove duplicate headers`);
         } catch (error) {
           // Ignore if range doesn't exist
-          console.log(`   (No columns beyond L to clear)`);
+          console.log(`   (No columns beyond M to clear)`);
         }
       }
       
-      const headerRange = `${sheetName}!A1:L1`; // 12 columns (A-L)
+      const headerRange = `${sheetName}!A1:M1`; // 13 columns (A-M, SKU is in M)
       
       console.log(`📝 ${nextRow === 1 ? 'Creating' : 'Updating'} header row with range: ${headerRange}`);
       console.log(`   Headers: ${headers.join(", ")}`);
@@ -403,14 +423,16 @@ router.post("/sheets", async (req: Request, res: Response) => {
 
     // Append data row using update instead of append for precise column control
     // Using update ensures exact column alignment
-    const range = `${sheetName}!A${nextRow}:L${nextRow}`; // 12 columns (A-L)
+    const range = `${sheetName}!A${nextRow}:M${nextRow}`; // 13 columns (A-M, SKU is in M)
     
     console.log(`📝 Writing row ${nextRow} to Google Sheets with ${rowData.length} columns`);
     console.log(`   Range: ${range}`);
+    console.log(`   Column C (Card Number): "${rowData[2]?.substring(0, 50) || ""}..."`);
     console.log(`   Column D (Title): "${rowData[3]?.substring(0, 50) || ""}..."`);
     console.log(`   Column E (Listing Title): "${rowData[4]?.substring(0, 50) || ""}..."`);
     console.log(`   Column K (Caption): "${rowData[10]?.substring(0, 50) || ""}..."`);
     console.log(`   Column L (Auto Description): "${rowData[11]?.substring(0, 50) || ""}..."`);
+    console.log(`   Column M (SKU): "${rowData[12]?.substring(0, 50) || ""}..."`);
     
     await sheets.spreadsheets.values.update({
       spreadsheetId,
@@ -422,10 +444,12 @@ router.post("/sheets", async (req: Request, res: Response) => {
     });
     
     console.log(`✅ Successfully wrote row ${nextRow} to Google Sheets`);
+    console.log(`   ✅ Card Number written to column C: "${rowData[2]?.substring(0, 50) || ""}..."`);
     console.log(`   ✅ Title written to column D: "${rowData[3]?.substring(0, 50) || ""}..."`);
     console.log(`   ✅ Listing Title written to column E: "${rowData[4]?.substring(0, 50) || ""}..."`);
     console.log(`   ✅ Caption written to column K: "${rowData[10]?.substring(0, 50) || ""}..."`);
     console.log(`   ✅ Auto Description written to column L: "${rowData[11]?.substring(0, 50) || ""}..."`);
+    console.log(`   ✅ SKU written to column M: "${rowData[12]?.substring(0, 50) || ""}..."`);
 
     // Clean up empty rows (skip header row)
     try {

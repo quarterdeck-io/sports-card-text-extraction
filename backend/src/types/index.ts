@@ -30,6 +30,7 @@ export interface OCRBlock {
 export interface NormalizedCardFields {
   year: string;
   set: string;
+  sku: string;
   cardNumber: string;
   title: string;
   playerFirstName: string;

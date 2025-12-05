@@ -40,6 +40,7 @@ export interface ProcessImageResponse {
     normalized: {
       year: string;
       set: string;
+      sku: string;
       cardNumber: string;
       title: string;
       playerFirstName: string;
@@ -80,6 +81,7 @@ export interface CardRecord {
   normalized: {
     year: string;
     set: string;
+    sku: string;
     cardNumber: string;
     title: string;
     playerFirstName: string;

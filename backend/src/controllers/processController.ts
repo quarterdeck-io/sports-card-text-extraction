@@ -161,7 +161,10 @@ router.post("/", async (req: Request, res: Response) => {
       },
       rawOcrText: ocrResult.rawOcrText,
       ocrBlocks: ocrResult.ocrBlocks,
-      normalized: normalizeResult.normalized,
+      normalized: {
+        ...normalizeResult.normalized,
+        sku: normalizeResult.normalized.sku || "", // Initialize SKU (user-entered field)
+      },
       confidenceByField: normalizeResult.confidenceByField,
       autoTitle: "", // Will be filled in background
       autoDescription: "", // Will be filled in background

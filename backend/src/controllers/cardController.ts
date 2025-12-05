@@ -24,6 +24,7 @@ router.post("/", (req: Request, res: Response) => {
       normalized: cardData.normalized || {
         year: "",
         set: "",
+        sku: "",
         cardNumber: "",
         title: "",
         playerFirstName: "",
@@ -62,6 +63,50 @@ router.get("/:id", (req: Request, res: Response) => {
   } catch (error) {
     console.error("Card retrieval error:", error);
     res.status(500).json({ error: "Failed to retrieve card" });
+  }
+});
+
+router.put("/:id", (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const card = cardsStore.get(id);
+    if (!card) {
+      return res.status(404).json({ error: "Card not found" });
+    }
+
+    // Log what we're receiving
+    console.log(`📝 Updating card ${id}:`);
+    if (req.body.normalized) {
+      console.log(`   Received normalized.sku: "${req.body.normalized.sku || ""}"`);
+      console.log(`   Received normalized.cardNumber: "${req.body.normalized.cardNumber || ""}"`);
+      console.log(`   Received normalized.title: "${req.body.normalized.title || ""}"`);
+    }
+
+    // Update normalized fields if provided
+    if (req.body.normalized) {
+      card.normalized = {
+        ...card.normalized,
+        ...req.body.normalized,
+      };
+      console.log(`   ✅ Updated card.normalized.sku: "${card.normalized.sku || ""}"`);
+      console.log(`   ✅ Updated card.normalized.cardNumber: "${card.normalized.cardNumber || ""}"`);
+    }
+
+    // Update other fields if provided
+    if (req.body.autoTitle !== undefined) {
+      card.autoTitle = req.body.autoTitle;
+    }
+    if (req.body.autoDescription !== undefined) {
+      card.autoDescription = req.body.autoDescription;
+    }
+
+    card.updatedAt = new Date().toISOString();
+    cardsStore.set(id, card);
+
+    res.json(card);
+  } catch (error) {
+    console.error("Card update error:", error);
+    res.status(500).json({ error: "Failed to update card" });
   }
 });
 
