@@ -5,10 +5,13 @@ import fs from "fs";
 import { config } from "./config";
 import { imageRouter } from "./controllers/imageController";
 import { cardRouter } from "./controllers/cardController";
+import { bookRouter } from "./controllers/bookController";
 import { ocrRouter } from "./controllers/ocrController";
 import { normalizeRouter } from "./controllers/normalizeController";
 import { exportRouter } from "./controllers/exportController";
+import { bookExportRouter } from "./controllers/bookExportController";
 import { processRouter } from "./controllers/processController";
+import { processBookRouter } from "./controllers/processBookController";
 
 const app: express.Application = express();
 
@@ -33,10 +36,13 @@ app.use("/uploads", express.static(staticUploadsPath));
 // Routes
 app.use("/api/images", imageRouter);
 app.use("/api/cards", cardRouter);
+app.use("/api/books", bookRouter);
 app.use("/api/ocr", ocrRouter);
 app.use("/api/normalize", normalizeRouter);
 app.use("/api/export", exportRouter);
+app.use("/api/export/book", bookExportRouter);
 app.use("/api/process", processRouter);
+app.use("/api/process-book", processBookRouter);
 
 // Health check
 app.get("/health", (req, res) => {
