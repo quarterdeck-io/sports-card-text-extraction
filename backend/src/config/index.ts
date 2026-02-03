@@ -5,7 +5,10 @@ dotenv.config();
 // Helper to parse JSON from env var or return null
 function parseJsonFromEnv(envVar: string | undefined, varName: string = "JSON"): any | null {
   if (!envVar) {
-    console.log(`⚠️  Environment variable ${varName} is not set`);
+    // Only show warning in production - in development, file paths are used as fallback
+    if (process.env.NODE_ENV === "production") {
+      console.log(`⚠️  Environment variable ${varName} is not set`);
+    }
     return null;
   }
   try {
@@ -41,6 +44,9 @@ export const config = {
       serviceAccountKeyJson: parseJsonFromEnv(process.env.GOOGLE_SHEETS_CREDENTIALS_JSON, "GOOGLE_SHEETS_CREDENTIALS_JSON"),
       spreadsheetId: process.env.GOOGLE_SHEETS_SPREADSHEET_ID || "",
       sheetName: process.env.GOOGLE_SHEETS_SHEET_NAME || "Cards",
+      // Book-specific spreadsheet configuration
+      bookSpreadsheetId: process.env.GOOGLE_SHEETS_BOOK_SPREADSHEET_ID || "",
+      bookSheetName: process.env.GOOGLE_SHEETS_BOOK_SHEET_NAME || "book title",
     },
   },
 
@@ -50,3 +56,14 @@ export const config = {
   },
 };
 
+// Log Google Sheets configuration on startup (for debugging)
+if (config.nodeEnv === "development") {
+  console.log("\n📊 Google Sheets Configuration:");
+  console.log(`   Card Spreadsheet ID: ${config.google.sheets.spreadsheetId || "not set"}`);
+  console.log(`   Card Sheet Name: ${config.google.sheets.sheetName || "not set"}`);
+  console.log(`   Book Spreadsheet ID: ${config.google.sheets.bookSpreadsheetId || "not set"}`);
+  console.log(`   Book Sheet Name: ${config.google.sheets.bookSheetName || "not set"}`);
+  console.log(`   GOOGLE_SHEETS_BOOK_SPREADSHEET_ID env: ${process.env.GOOGLE_SHEETS_BOOK_SPREADSHEET_ID || "not set"}`);
+  console.log(`   GOOGLE_SHEETS_BOOK_SHEET_NAME env: ${process.env.GOOGLE_SHEETS_BOOK_SHEET_NAME || "not set"}`);
+  console.log("");
+}

@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { NormalizedCardFields, NormalizeResponse, TitleDescriptionResponse } from "../types";
+import { NormalizedCardFields, NormalizeResponse, TitleDescriptionResponse, NormalizedBookFields, NormalizeBookResponse, BookTitleDescriptionResponse } from "../types";
 
 let geminiClient: GoogleGenerativeAI | null = null;
 let workingGeminiModel: string = "gemini-1.5-flash"; // Use fastest flash model by default
@@ -517,7 +517,7 @@ Return ONLY valid JSON:
           generationConfig: {
             temperature: 0.2, // Lower temperature for faster, more deterministic responses
             responseMimeType: "application/json",
-            maxOutputTokens: 1000, // Increased to ensure complete JSON response
+            maxOutputTokens: 2048, // Increased to ensure complete JSON response (especially for longer descriptions)
           },
         });
         
@@ -609,7 +609,73 @@ Return ONLY valid JSON:
     } catch (parseError) {
       console.error("   ❌ Failed to parse JSON response");
       console.error("   Response content:", content);
-      throw new Error(`Invalid JSON response from Gemini: ${parseError instanceof Error ? parseError.message : "Unknown parse error"}`);
+      
+      // Try to fix incomplete JSON (common issue with truncated responses)
+      let fixedContent = content.trim();
+      
+      // Check if it's an unterminated string (most common truncation issue)
+      if (parseError instanceof Error && parseError.message.includes("Unterminated string")) {
+        console.log("   🔧 Attempting to fix unterminated string in JSON...");
+        
+        // Try to find and close the last unterminated string
+        // Look for the last "autoDescription" field
+        const descMatch = fixedContent.match(/"autoDescription"\s*:\s*"([^"]*)$/);
+        if (descMatch) {
+          // The string is incomplete - try to close it
+          const incompleteDesc = descMatch[1];
+          // Remove the incomplete part and close the JSON properly
+          fixedContent = fixedContent.substring(0, fixedContent.lastIndexOf('"autoDescription"'));
+          // Re-add with a truncated but valid description
+          const titleMatch = fixedContent.match(/"autoTitle"\s*:\s*"([^"]+)"/);
+          const title = titleMatch ? titleMatch[1] : "";
+          const playerName = [normalized.playerFirstName, normalized.playerLastName].filter(Boolean).join(" ");
+          
+          // Create a fallback description
+          const fallbackDesc = title && playerName 
+            ? `${title}, ${playerName}, notable player in sports history. This card is valuable for collectors.`
+            : "Sports card collectible item.";
+          
+          fixedContent = fixedContent + `"autoDescription": "${fallbackDesc.replace(/"/g, '\\"')}"}`;
+          
+          console.log("   🔧 Fixed JSON by closing unterminated string");
+        } else {
+          // Try to close the JSON object if it's just missing closing braces
+          if (!fixedContent.endsWith("}")) {
+            // Count open and close braces
+            const openBraces = (fixedContent.match(/{/g) || []).length;
+            const closeBraces = (fixedContent.match(/}/g) || []).length;
+            const missingBraces = openBraces - closeBraces;
+            
+            if (missingBraces > 0) {
+              // Try to close the last string and add missing braces
+              if (fixedContent.match(/"autoDescription"\s*:\s*"[^"]*$/)) {
+                // Close the string and object
+                fixedContent = fixedContent.replace(/"autoDescription"\s*:\s*"[^"]*$/, 
+                  `"autoDescription": "Sports card collectible item."`);
+              }
+              fixedContent = fixedContent + "}".repeat(missingBraces);
+              console.log(`   🔧 Fixed JSON by adding ${missingBraces} missing closing brace(s)`);
+            }
+          }
+        }
+        
+        // Try parsing again
+        try {
+          parsed = JSON.parse(fixedContent);
+          console.log("   ✅ Successfully fixed and parsed JSON");
+        } catch (retryError) {
+          console.error("   ❌ Could not fix JSON, using fallback values");
+          // Use fallback values
+          const titleMatch = content.match(/"autoTitle"\s*:\s*"([^"]+)"/);
+          const title = titleMatch ? titleMatch[1] : "";
+          parsed = {
+            autoTitle: title || `${normalized.year || ""} ${normalized.set || ""} ${normalized.playerFirstName || ""} ${normalized.playerLastName || ""} #${normalized.cardNumber || ""} ${normalized.gradingCompany || ""} ${normalized.grade || ""}`.trim(),
+            autoDescription: `${title || "Sports card"}, ${[normalized.playerFirstName, normalized.playerLastName].filter(Boolean).join(" ") || "player"}, notable player in sports history. This card is valuable for collectors.`
+          };
+        }
+      } else {
+        throw new Error(`Invalid JSON response from Gemini: ${parseError instanceof Error ? parseError.message : "Unknown parse error"}`);
+      }
     }
     
     // Validate and fix response
@@ -688,5 +754,444 @@ Return ONLY valid JSON:
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     console.error(`   Error details: ${errorMessage}`);
     throw new Error(`Title/description generation failed: ${errorMessage}`);
+  }
+}
+
+// Book-specific AI functions
+export async function normalizeBookText(rawOcrText: string): Promise<NormalizeBookResponse> {
+  try {
+    console.log("🤖 Starting AI book text normalization with Gemini...");
+    console.log(`   OCR text length: ${rawOcrText.length} characters`);
+    
+    const client = getGeminiClient();
+    const apiKey = process.env.GEMINI_API_KEY || "";
+    
+    let modelToUse = workingGeminiModel;
+    console.log(`   Using model: ${modelToUse}`);
+
+    const prompt = `Extract and normalize bibliographic information from a book title page OCR text.
+
+OCR Text:
+${rawOcrText}
+
+Extract these fields from the title page (TIER 1 - Direct Extraction):
+- printISBN: Print ISBN number (e.g., "978-1-949846-39-3")
+- eISBN: Electronic ISBN number (e.g., "978-1-949846-41-6")
+- publisherName: Publisher name (e.g., "DK Pub", "Charles Scribner's Sons")
+- placePublished: Place of publication (e.g., "New York", "London")
+- yearPublished: Publication year (e.g., "1993", "2021")
+- editionText: Edition information (e.g., "First Edition", "First Clydesdale Press Edition 2021")
+- printingText: Printing information (e.g., "1st printing", "10 9 8 7 6 5 4 3 2 1")
+- printRunNumbers: Print run numbers if visible (e.g., "10 9 8 7 6 5 4 3 2 1")
+- volume: Volume number if applicable
+- copyrightInfo: Copyright information
+- libraryOfCongress: Library of Congress data if visible
+- coverDesigner: Cover designer/illustrator credits
+- originalPublicationDetails: Original publication details (e.g., "First published by Charles Scribner's Sons in 1925")
+
+For TIER 2 (AI-Enhanced), extract if visible or infer:
+- title: Book title (from title page)
+- author: Author name(s)
+- illustrator: Illustrator name(s) if different from cover designer
+- completePublisherInfo: Complete publisher information including address if visible
+- description: Book description/synopsis if on title page
+- genre: Genre/category if mentioned
+- category: Category classification
+- retailPrice: Retail price if visible
+
+Return ONLY valid JSON with this structure:
+{
+  "normalized": {
+    "printISBN": "",
+    "eISBN": "",
+    "publisherName": "",
+    "placePublished": "",
+    "yearPublished": "",
+    "editionText": "",
+    "printingText": "",
+    "printRunNumbers": "",
+    "volume": "",
+    "title": "",
+    "author": "",
+    "illustrator": "",
+    "completePublisherInfo": "",
+    "description": "",
+    "genre": "",
+    "category": "",
+    "retailPrice": "",
+    "copyrightInfo": "",
+    "libraryOfCongress": "",
+    "coverDesigner": "",
+    "originalPublicationDetails": ""
+  },
+  "confidenceByField": {
+    "printISBN": 0.0,
+    "eISBN": 0.0,
+    "publisherName": 0.0,
+    "placePublished": 0.0,
+    "yearPublished": 0.0,
+    "editionText": 0.0,
+    "printingText": 0.0,
+    "printRunNumbers": 0.0,
+    "volume": 0.0,
+    "title": 0.0,
+    "author": 0.0,
+    "illustrator": 0.0,
+    "completePublisherInfo": 0.0,
+    "description": 0.0,
+    "genre": 0.0,
+    "category": 0.0,
+    "retailPrice": 0.0,
+    "copyrightInfo": 0.0,
+    "libraryOfCongress": 0.0,
+    "coverDesigner": 0.0,
+    "originalPublicationDetails": 0.0
+  }
+}
+
+Confidence scores: 0.5-0.7 if unclear/missing, 0.8-1.0 if clearly identified.`;
+
+    let result;
+    let lastError: Error | unknown;
+    
+    let modelsToTry = [modelToUse];
+    
+    if (!modelDiscoveryDone) {
+      try {
+        const foundModel = await findWorkingModel(client, apiKey);
+        if (foundModel && !modelsToTry.includes(foundModel)) {
+          modelsToTry.push(foundModel);
+          workingGeminiModel = foundModel;
+        }
+        modelDiscoveryDone = true;
+      } catch (e) {
+        console.log("   ⚠️  Could not find working model dynamically, using fallbacks...");
+      }
+    }
+    
+    const fallbackModels = [
+      "gemini-1.5-flash",
+      "gemini-flash-latest",
+      "gemini-2.5-flash",
+      "gemini-1.5-pro",
+    ];
+    
+    modelsToTry = [
+      ...modelsToTry,
+      ...fallbackModels,
+    ].filter((model, index, self) => self.indexOf(model) === index);
+    
+    for (const currentModel of modelsToTry) {
+      try {
+        console.log(`   Trying model: ${currentModel}...`);
+        const model = client.getGenerativeModel({ 
+          model: currentModel,
+          generationConfig: {
+            temperature: 0.2,
+            responseMimeType: "application/json",
+            maxOutputTokens: 3000,
+          },
+        });
+        
+        result = await retryWithBackoff(async () => {
+          return await model.generateContent(prompt);
+        }, 3, 500);
+        
+        if (currentModel !== modelToUse) {
+          console.log(`   ✅ Switched to model: ${currentModel}`);
+          workingGeminiModel = currentModel;
+        }
+        break;
+      } catch (modelError) {
+        lastError = modelError;
+        const errorMsg = modelError instanceof Error ? modelError.message : String(modelError);
+        
+        if (errorMsg.includes("not found") || errorMsg.includes("404")) {
+          console.log(`   ⚠️  Model ${currentModel} not found, trying next...`);
+          continue;
+        }
+        
+        if (errorMsg.includes("503") || errorMsg.includes("Service Unavailable") || 
+            errorMsg.includes("429") || errorMsg.includes("overloaded")) {
+          console.log(`   ⚠️  Model ${currentModel} is overloaded, trying alternative...`);
+          continue;
+        }
+        
+        throw modelError;
+      }
+    }
+    
+    if (!result) {
+      const errorMsg = lastError instanceof Error ? lastError.message : String(lastError || "Unknown error");
+      
+      if (errorMsg.includes("not found") || errorMsg.includes("404")) {
+        throw new Error("AI service unavailable: No compatible models found. Please check your API configuration.");
+      } else if (errorMsg.includes("403") || errorMsg.includes("PERMISSION_DENIED")) {
+        throw new Error("AI service access denied: Please enable billing or check API permissions.");
+      } else if (errorMsg.includes("401") || errorMsg.includes("API_KEY")) {
+        throw new Error("AI service authentication failed: Please check your API key configuration.");
+      } else if (errorMsg.includes("503") || errorMsg.includes("Service Unavailable")) {
+        throw new Error("AI service temporarily unavailable: Please try again in a moment.");
+      } else {
+        throw new Error(`AI processing failed: ${errorMsg}`);
+      }
+    }
+    
+    const response = result.response;
+    
+    if (!response) {
+      throw new Error("No response object from Gemini");
+    }
+    
+    let content: string;
+    try {
+      content = response.text();
+    } catch (textError) {
+      console.error("   ❌ Error getting text from response:", textError);
+      if (response.candidates && response.candidates.length > 0) {
+        const candidate = response.candidates[0];
+        if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
+          content = candidate.content.parts[0].text || "";
+        }
+      }
+      if (!content) {
+        throw new Error(`Failed to extract text from response: ${textError instanceof Error ? textError.message : "Unknown error"}`);
+      }
+    }
+
+    if (!content || content.trim().length === 0) {
+      console.error("   ❌ Empty response content from Gemini");
+      throw new Error("No response content from Gemini - response was empty");
+    }
+    
+    console.log(`   📝 Response length: ${content.length} characters`);
+
+    let parsed: NormalizeBookResponse;
+    try {
+      parsed = JSON.parse(content);
+    } catch (parseError) {
+      console.error("   ❌ Failed to parse JSON response");
+      console.error("   Response content:", content);
+      throw new Error(`Invalid JSON response from Gemini: ${parseError instanceof Error ? parseError.message : "Unknown parse error"}`);
+    }
+    
+    console.log("✅ AI book normalization completed");
+    return parsed;
+  } catch (error) {
+    console.error("❌ AI Book Normalization Error:", error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    console.error(`   Error details: ${errorMessage}`);
+    throw new Error(`AI book normalization failed: ${errorMessage}`);
+  }
+}
+
+export async function generateBookTitleAndDescription(
+  normalized: NormalizedBookFields,
+  isbn?: string
+): Promise<BookTitleDescriptionResponse> {
+  try {
+    console.log("📝 Generating book title and description with Gemini...");
+    const client = getGeminiClient();
+    const apiKey = process.env.GEMINI_API_KEY || "";
+    const modelToUse = workingGeminiModel;
+    console.log(`   Using model: ${modelToUse}`);
+
+    // Build lookup query - prefer ISBN, fallback to title + author
+    const lookupQuery = isbn || normalized.printISBN || normalized.eISBN 
+      ? `ISBN: ${isbn || normalized.printISBN || normalized.eISBN}`
+      : `${normalized.title || ""} by ${normalized.author || ""}`.trim();
+
+    const prompt = `Generate a complete title and description for this book based on bibliographic information.
+
+Book Information:
+- Title: ${normalized.title || ""}
+- Author: ${normalized.author || ""}
+- Illustrator: ${normalized.illustrator || ""}
+- Publisher: ${normalized.publisherName || ""}
+- Year Published: ${normalized.yearPublished || ""}
+- Edition: ${normalized.editionText || ""}
+- ISBN: ${normalized.printISBN || normalized.eISBN || ""}
+- Place Published: ${normalized.placePublished || ""}
+- Genre/Category: ${normalized.genre || normalized.category || ""}
+- Description (from title page): ${normalized.description || ""}
+
+Lookup Query: ${lookupQuery}
+
+Title Format (REQUIRED):
+Use the exact book title from the information above. If title is missing, look it up using the ISBN or title+author combination.
+
+Description Format (REQUIRED):
+Create a comprehensive book description that includes:
+1. Full bibliographic citation
+2. Brief synopsis/description (if available from title page or lookup)
+3. Key details: author, publisher, year, edition if notable
+4. Genre/category information if available
+
+The description should be informative and suitable for cataloging/listing purposes.
+
+IMPORTANT: 
+- If ISBN is available, use it to look up additional metadata (description, genre, price)
+- If title/author are available but description is missing, infer a reasonable description
+- Description should be at least 100 characters
+- NEVER return an empty description
+
+Return ONLY valid JSON:
+{
+  "autoTitle": "",
+  "autoDescription": ""
+}`;
+
+    let result;
+    let lastError: Error | unknown;
+    
+    let modelsToTry = [modelToUse];
+    
+    try {
+      const foundModel = await findWorkingModel(client, apiKey);
+      if (foundModel && !modelsToTry.includes(foundModel)) {
+        modelsToTry.push(foundModel);
+      }
+    } catch (e) {
+      console.log("   ⚠️  Could not find working model dynamically, using fallbacks...");
+    }
+    
+    const fallbackModels = [
+      "gemini-1.5-flash",
+      "gemini-flash-latest",
+      "gemini-2.5-flash",
+      "gemini-1.5-pro",
+    ];
+    
+    modelsToTry = [
+      ...modelsToTry,
+      ...fallbackModels,
+    ].filter((model, index, self) => self.indexOf(model) === index);
+    
+    for (const currentModel of modelsToTry) {
+      try {
+        console.log(`   Trying model: ${currentModel}...`);
+        const model = client.getGenerativeModel({ 
+          model: currentModel,
+          generationConfig: {
+            temperature: 0.2,
+            responseMimeType: "application/json",
+            maxOutputTokens: 2048,
+          },
+        });
+        
+        result = await retryWithBackoff(async () => {
+          return await model.generateContent(prompt);
+        }, 3, 500);
+        
+        if (currentModel !== modelToUse) {
+          console.log(`   ✅ Switched to model: ${currentModel}`);
+          workingGeminiModel = currentModel;
+        }
+        break;
+      } catch (modelError) {
+        lastError = modelError;
+        const errorMsg = modelError instanceof Error ? modelError.message : String(modelError);
+        
+        if (errorMsg.includes("not found") || errorMsg.includes("404")) {
+          console.log(`   ⚠️  Model ${currentModel} not found, trying next...`);
+          continue;
+        }
+        
+        if (errorMsg.includes("503") || errorMsg.includes("Service Unavailable") || 
+            errorMsg.includes("429") || errorMsg.includes("overloaded")) {
+          console.log(`   ⚠️  Model ${currentModel} is overloaded, trying alternative...`);
+          continue;
+        }
+        
+        throw modelError;
+      }
+    }
+    
+    if (!result) {
+      const errorMsg = lastError instanceof Error ? lastError.message : String(lastError || "Unknown error");
+      
+      if (errorMsg.includes("not found") || errorMsg.includes("404")) {
+        throw new Error("AI service unavailable: No compatible models found. Please check your API configuration.");
+      } else if (errorMsg.includes("403") || errorMsg.includes("PERMISSION_DENIED")) {
+        throw new Error("AI service access denied: Please enable billing or check API permissions.");
+      } else if (errorMsg.includes("401") || errorMsg.includes("API_KEY")) {
+        throw new Error("AI service authentication failed: Please check your API key configuration.");
+      } else if (errorMsg.includes("503") || errorMsg.includes("Service Unavailable")) {
+        throw new Error("AI service temporarily unavailable: Please try again in a moment.");
+      } else {
+        throw new Error(`AI processing failed: ${errorMsg}`);
+      }
+    }
+    
+    const response = result.response;
+    
+    if (!response) {
+      throw new Error("No response object from Gemini");
+    }
+    
+    let content: string;
+    try {
+      content = response.text();
+    } catch (textError) {
+      console.error("   ❌ Error getting text from response:", textError);
+      if (response.candidates && response.candidates.length > 0) {
+        const candidate = response.candidates[0];
+        if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
+          content = candidate.content.parts[0].text || "";
+        }
+      }
+      if (!content) {
+        throw new Error(`Failed to extract text from response: ${textError instanceof Error ? textError.message : "Unknown error"}`);
+      }
+    }
+
+    if (!content || content.trim().length === 0) {
+      console.error("   ❌ Empty response content from Gemini");
+      throw new Error("No response content from Gemini - response was empty");
+    }
+    
+    console.log(`   📝 Response length: ${content.length} characters`);
+
+    let parsed: BookTitleDescriptionResponse;
+    try {
+      parsed = JSON.parse(content);
+    } catch (parseError) {
+      console.error("   ❌ Failed to parse JSON response");
+      console.error("   Response content:", content);
+      throw new Error(`Invalid JSON response from Gemini: ${parseError instanceof Error ? parseError.message : "Unknown parse error"}`);
+    }
+    
+    // Validate and fix response
+    let fixedTitle = parsed.autoTitle || "";
+    let fixedDescription = parsed.autoDescription || "";
+    
+    if (!fixedTitle || fixedTitle.trim() === "") {
+      fixedTitle = normalized.title || "Untitled Book";
+    }
+    
+    if (!fixedDescription || fixedDescription.trim() === "") {
+      // Generate fallback description
+      const parts = [
+        fixedTitle,
+        normalized.author ? `by ${normalized.author}` : "",
+        normalized.publisherName ? `Published by ${normalized.publisherName}` : "",
+        normalized.yearPublished ? `(${normalized.yearPublished})` : "",
+      ].filter(Boolean);
+      fixedDescription = parts.join(". ") + ". " + (normalized.description || "Bibliographic information extracted from title page.");
+    }
+    
+    console.log(`   ✅ autoTitle (${fixedTitle.length} chars): ${fixedTitle ? fixedTitle.substring(0, 50) + "..." : "EMPTY"}`);
+    console.log(`   ✅ autoDescription (${fixedDescription.length} chars): ${fixedDescription ? fixedDescription.substring(0, 50) + "..." : "EMPTY"}`);
+    
+    console.log("✅ Book title and description generated");
+    return {
+      autoTitle: fixedTitle,
+      autoDescription: fixedDescription,
+    };
+  } catch (error) {
+    console.error("❌ Book Title/Description Generation Error:", error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    console.error(`   Error details: ${errorMessage}`);
+    throw new Error(`Book title/description generation failed: ${errorMessage}`);
   }
 }
