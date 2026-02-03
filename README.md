@@ -79,3 +79,4 @@ Backend API: http://localhost:3001
 
 Private project
 
+<!-- Test commit: GitHub authentication verification -->
