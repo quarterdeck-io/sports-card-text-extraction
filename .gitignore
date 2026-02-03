@@ -65,3 +65,16 @@ backend/*.log
 *.md
 !README.md
 
+# Old app reference (for local comparison only)
+old-app/
+
+# Archive files
+*.zip
+
+# npm lock files (using pnpm instead)
+package-lock.json
+backend/package-lock.json
+web/package-lock.json
+
+# Test/temporary files
+32 (1).webp
