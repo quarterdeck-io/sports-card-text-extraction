@@ -101,5 +101,78 @@ export const getCard = async (cardId: string): Promise<CardRecord> => {
   return response.data;
 };
 
+// Book-specific interfaces and functions
+export interface BookRecord {
+  id: string;
+  normalized: {
+    printISBN: string;
+    eISBN: string;
+    publisherName: string;
+    placePublished: string;
+    yearPublished: string;
+    editionText: string;
+    printingText: string;
+    printRunNumbers: string;
+    volume: string;
+    title: string;
+    author: string;
+    illustrator: string;
+    completePublisherInfo: string;
+    description: string;
+    genre: string;
+    category: string;
+    retailPrice: string;
+    copyrightInfo: string;
+    libraryOfCongress: string;
+    coverDesigner: string;
+    originalPublicationDetails: string;
+    format: string;
+    condition: string;
+    quantity: string;
+    productType: string;
+    language: string;
+    jacketCondition: string;
+    signedText: string;
+  };
+  autoTitle: string;
+  autoDescription: string;
+  confidenceByField: Record<string, number>;
+  sourceImage: {
+    id: string;
+    url: string;
+    filename: string;
+  };
+}
+
+export interface ProcessBookImageResponse {
+  bookId: string;
+  book: BookRecord;
+  timings?: {
+    ocr: number;
+    normalization: number;
+    titleGeneration: number;
+    total: number;
+  };
+}
+
+export const processBookImage = async (
+  filename: string,
+  sourceImageId: string,
+  url: string
+): Promise<ProcessBookImageResponse> => {
+  const response = await api.post<ProcessBookImageResponse>("/api/process-book", {
+    filename,
+    sourceImageId,
+    url,
+  });
+
+  return response.data;
+};
+
+export const getBook = async (bookId: string): Promise<BookRecord> => {
+  const response = await api.get<BookRecord>(`/api/books/${bookId}`);
+  return response.data;
+};
+
 export default api;
 
