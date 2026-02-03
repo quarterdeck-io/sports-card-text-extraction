@@ -6,9 +6,10 @@ import { Upload, Camera, X } from "lucide-react";
 interface UploadZoneProps {
   onFileSelect: (file: File) => void;
   onCameraCapture?: () => void;
+  acceptPDF?: boolean; // For book scanning, allow PDFs
 }
 
-export default function UploadZone({ onFileSelect, onCameraCapture }: UploadZoneProps) {
+export default function UploadZone({ onFileSelect, onCameraCapture, acceptPDF = false }: UploadZoneProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -28,11 +29,16 @@ export default function UploadZone({ onFileSelect, onCameraCapture }: UploadZone
 
   const validateImage = (file: File): { valid: boolean; error?: string } => {
     // Check file type
-    const validTypes = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"];
+    const validTypes = acceptPDF 
+      ? ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp", "application/pdf"]
+      : ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"];
+    
     if (!validTypes.includes(file.type)) {
       return {
         valid: false,
-        error: "Invalid file type. Please upload a JPG, PNG, GIF, or WebP image.",
+        error: acceptPDF 
+          ? "Invalid file type. Please upload a JPG, PNG, GIF, WebP image, or PDF."
+          : "Invalid file type. Please upload a JPG, PNG, GIF, or WebP image.",
       };
     }
 
@@ -165,7 +171,7 @@ export default function UploadZone({ onFileSelect, onCameraCapture }: UploadZone
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
+          accept={acceptPDF ? "image/*,application/pdf" : "image/*"}
           className="hidden"
           onChange={handleFileInput}
         />
