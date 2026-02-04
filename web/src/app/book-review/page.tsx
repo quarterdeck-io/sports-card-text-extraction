@@ -124,7 +124,7 @@ export default function BookReviewPage() {
 
     loadBookData();
     
-    // Poll for autoTitle and autoDescription updates
+    // Poll for autoTitle/autoDescription (and now AI-estimated retailPrice) updates
     let pollCount = 0;
     const maxPolls = 15;
     
@@ -142,6 +142,8 @@ export default function BookReviewPage() {
           const book = await getBook(bookId);
           const hasNewTitle = book.autoTitle && book.autoTitle.trim() !== "";
           const hasNewDescription = book.autoDescription && book.autoDescription.trim() !== "";
+          const hasNewRetailPrice =
+            book.normalized?.retailPrice && book.normalized.retailPrice.trim() !== "";
           
           if (hasNewTitle && !hasAutoTitleRef.current) {
             setAutoTitle(book.autoTitle);
@@ -161,15 +163,35 @@ export default function BookReviewPage() {
             }));
           }
           
+          // If Gemini later fills in an estimated retailPrice, apply it
+          // only when we don't already have a value (to avoid overwriting user input).
+          if (hasNewRetailPrice) {
+            setFields((prev) => {
+              if (prev.retailPrice && prev.retailPrice.trim() !== "") {
+                return prev;
+              }
+              return {
+                ...prev,
+                retailPrice: book.normalized.retailPrice,
+              };
+            });
+          }
+          
           const bookDataStr = sessionStorage.getItem("bookData");
           if (bookDataStr) {
             const bookData = JSON.parse(bookDataStr);
             if (hasNewTitle) bookData.autoTitle = book.autoTitle;
             if (hasNewDescription) bookData.autoDescription = book.autoDescription;
+            if (hasNewRetailPrice) {
+              bookData.normalized = {
+                ...bookData.normalized,
+                retailPrice: book.normalized.retailPrice,
+              };
+            }
             sessionStorage.setItem("bookData", JSON.stringify(bookData));
           }
           
-          if (hasNewTitle && hasNewDescription) {
+          if (hasNewTitle && hasNewDescription && hasNewRetailPrice) {
             clearInterval(pollInterval);
           }
         } catch (error) {

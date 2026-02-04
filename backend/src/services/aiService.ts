@@ -996,8 +996,9 @@ export async function generateBookTitleAndDescription(
     const modelToUse = workingGeminiModel;
     console.log(`   Using model: ${modelToUse}`);
 
-    // Build lookup query - prefer ISBN, fallback to title + author
-    const lookupQuery = isbn || normalized.printISBN || normalized.eISBN 
+    // Build lookup query - prefer ISBN, fallback to title + author (for description only)
+    const hasIsbn = Boolean(isbn || normalized.printISBN || normalized.eISBN);
+    const lookupQuery = hasIsbn
       ? `ISBN: ${isbn || normalized.printISBN || normalized.eISBN}`
       : `${normalized.title || ""} by ${normalized.author || ""}`.trim();
 
@@ -1030,15 +1031,18 @@ Create a comprehensive book description that includes:
 The description should be informative and suitable for cataloging/listing purposes.
 
 IMPORTANT: 
-- If ISBN is available, use it to look up additional metadata (description, genre, price)
-- If title/author are available but description is missing, infer a reasonable description
-- Description should be at least 100 characters
-- NEVER return an empty description
+- If ISBN is available, use it to look up additional metadata (description, genre, and a realistic used/retail price based on comparable sold items or listings).
+- If NO ISBN is available, DO NOT guess or estimate a price. In that case, set "retailPrice" to an empty string "".
+- If title/author are available but description is missing, infer a reasonable description.
+- Description should be at least 100 characters.
+- NEVER return an empty description.
+- When estimating price (only when ISBN is present), be conservative and output a realistic typical price for a used copy in good condition.
 
 Return ONLY valid JSON:
 {
   "autoTitle": "",
-  "autoDescription": ""
+  "autoDescription": "",
+  "retailPrice": ""  // estimated retail/used price like "24.99" (no currency symbol)
 }`;
 
     let result;
@@ -1164,6 +1168,8 @@ Return ONLY valid JSON:
     // Validate and fix response
     let fixedTitle = parsed.autoTitle || "";
     let fixedDescription = parsed.autoDescription || "";
+    // retailPrice is optional; keep as a loose any here so we don't break if model omits it
+    let fixedRetailPrice = (parsed as any).retailPrice || "";
     
     if (!fixedTitle || fixedTitle.trim() === "") {
       fixedTitle = normalized.title || "Untitled Book";
@@ -1179,14 +1185,26 @@ Return ONLY valid JSON:
       ].filter(Boolean);
       fixedDescription = parts.join(". ") + ". " + (normalized.description || "Bibliographic information extracted from title page.");
     }
+
+    // Normalize retailPrice to a simple numeric string (e.g. "24.99").
+    // IMPORTANT: Only allow a price when we actually have an ISBN; otherwise, force it empty.
+    if (hasIsbn && typeof fixedRetailPrice === "string") {
+      fixedRetailPrice = fixedRetailPrice.trim();
+      const priceMatch = fixedRetailPrice.match(/(\d+(\.\d+)?)/);
+      fixedRetailPrice = priceMatch ? priceMatch[1] : "";
+    } else {
+      fixedRetailPrice = "";
+    }
     
     console.log(`   ✅ autoTitle (${fixedTitle.length} chars): ${fixedTitle ? fixedTitle.substring(0, 50) + "..." : "EMPTY"}`);
     console.log(`   ✅ autoDescription (${fixedDescription.length} chars): ${fixedDescription ? fixedDescription.substring(0, 50) + "..." : "EMPTY"}`);
+    console.log(`   ✅ retailPrice: ${fixedRetailPrice || "EMPTY"}`);
     
     console.log("✅ Book title and description generated");
     return {
       autoTitle: fixedTitle,
       autoDescription: fixedDescription,
+      retailPrice: fixedRetailPrice,
     };
   } catch (error) {
     console.error("❌ Book Title/Description Generation Error:", error);

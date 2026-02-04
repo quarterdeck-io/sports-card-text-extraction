@@ -140,5 +140,9 @@ export interface NormalizeBookResponse {
 export interface BookTitleDescriptionResponse {
   autoTitle: string;
   autoDescription: string;
+  /**
+   * Optional AI-estimated retail price derived from ISBN / title lookup.
+   * This is kept separate from normalization so we can choose when to apply it.
+   */
+  retailPrice?: string;
 }
-

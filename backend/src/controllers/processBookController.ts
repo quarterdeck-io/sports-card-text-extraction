@@ -194,6 +194,7 @@ router.post("/", async (req: Request, res: Response) => {
         if (existingBook) {
           let finalTitle = result.autoTitle || "";
           let finalDescription = result.autoDescription || "";
+          let finalRetailPrice = (result as any).retailPrice || "";
           
           if (!finalTitle || finalTitle.trim() === "") {
             finalTitle = existingBook.normalized.title || "Untitled Book";
@@ -207,6 +208,27 @@ router.post("/", async (req: Request, res: Response) => {
               existingBook.normalized.yearPublished ? `(${existingBook.normalized.yearPublished})` : "",
             ].filter(Boolean);
             finalDescription = parts.join(". ") + ". " + (existingBook.normalized.description || "Bibliographic information extracted from title page.");
+          }
+
+          // Only apply AI-estimated retail price if:
+          // - We actually have an ISBN (no price lookups for books without ISBN)
+          // - The model returned a non-empty price
+          // - We don't already have a price from OCR or prior edits
+          if (
+            isbn &&
+            typeof finalRetailPrice === "string" &&
+            finalRetailPrice.trim() !== "" &&
+            (!existingBook.normalized.retailPrice || existingBook.normalized.retailPrice.trim() === "")
+          ) {
+            existingBook.normalized.retailPrice = finalRetailPrice.trim();
+            // Set a moderate confidence score for AI-estimated pricing if slot exists
+            if (!existingBook.confidenceByField) {
+              existingBook.confidenceByField = {};
+            }
+            if (existingBook.confidenceByField.retailPrice === undefined) {
+              existingBook.confidenceByField.retailPrice = 0.8;
+            }
+            console.log(`   🏷️  Applied AI-estimated retailPrice: ${finalRetailPrice.trim()}`);
           }
           
           existingBook.autoTitle = finalTitle;
